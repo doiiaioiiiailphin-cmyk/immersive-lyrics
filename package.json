@@ -1,0 +1,65 @@
+{
+  "name": "immersive-lyrics-player",
+  "version": "1.0.7",
+  "description": "沉浸式歌词播放器",
+  "main": "electron/main.js",
+  "private": true,
+  "scripts": {
+    "icons": "python scripts/make_icons.py",
+    "check": "node --check js/player.js js/netease.js js/search-panel.js js/window-titlebar.js electron/main.js electron/preload.js",
+    "check:python": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"python -m py_compile serve.py (Get-ChildItem api -Filter *.py | ForEach-Object FullName)\"",
+    "build:backend": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build_backend.ps1",
+    "pack:win": "npm run icons && npm run build:backend && electron-builder --win nsis",
+    "start": "electron ."
+  },
+  "dependencies": {
+    "playwright": "^1.61.0"
+  },
+  "devDependencies": {
+    "electron": "^42.5.0",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "cn.local.immersive-lyrics-player",
+    "productName": "Immersive Lyrics",
+    "copyright": "Copyright © 2026",
+    "directories": {
+      "output": "release"
+    },
+    "asar": false,
+    "files": [
+      "electron/**/*",
+      "build/icon.*",
+      "THIRD_PARTY_NOTICES.md"
+    ],
+    "extraResources": [
+      {
+        "from": "build/backend/player-server",
+        "to": "backend/player-server"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "artifactName": "ImmersiveLyrics-${version}-Setup.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "沉浸歌词",
+      "include": "build/installer.nsh",
+      "deleteAppDataOnUninstall": false
+    }
+  }
+}

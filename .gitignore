@@ -1,0 +1,56 @@
+# Runtime data and user media
+data/
+assets/*
+!assets/
+!assets/app-icon.svg
+
+# Build outputs
+build/
+release*/
+dist/
+out/
+
+# Dependencies and caches
+node_modules/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Local Codex/app workspace folders
+.agents/
+.codex/
+
+# Generated diagnostics and one-off experiments
+_*.js
+_*.py
+_*.txt
+diag*.html
+diag*.js
+*_test.js
+*test*.js
+standalone*.html
+silk-background-standalone.html
+jd.txt
+words.json
+music-lyric-player/
+js/lyrics-timed*.js
+
+# Media samples should not be published or bundled
+*.mp3
+*.m4a
+*.mp4
+*.wav
+*.flac
+*.ogg
+*.jpg
+*.jpeg
+*.png
+*.webp
+
+# System
+.DS_Store
+Thumbs.db
+
+# Accidental shell fragments
+1)*
+{round*
