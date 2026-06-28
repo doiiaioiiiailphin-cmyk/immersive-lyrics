@@ -45,6 +45,9 @@ js/lyrics-timed*.js
 *.jpg
 *.jpeg
 *.png
+!docs/
+!docs/screenshots/
+!docs/screenshots/*.png
 *.webp
 
 # System
@@ -53,4 +56,4 @@ Thumbs.db
 
 # Accidental shell fragments
 1)*
-{round*
+[{]round*
