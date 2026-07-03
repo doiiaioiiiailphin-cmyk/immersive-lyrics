@@ -201,9 +201,115 @@ function hueDist(a,b){
   let d=Math.abs(hueOf(a[0],a[1],a[2])-hueOf(b[0],b[1],b[2]));
   return d>0.5?1-d:d;
 }
-// 固定顺序（高→低）：青、蓝、品红、红、黄。把提取色按色相最近匹配到这5个目标位
+const clamp01=v=>Math.min(1,Math.max(0,v));
+const clamp=(v,min,max)=>Math.min(max,Math.max(min,v));
+function rgbToHsl(r,g,b){
+  const max=Math.max(r,g,b),min=Math.min(r,g,b);
+  let h=0,s=0;
+  const l=(max+min)/2;
+  const d=max-min;
+  if(d){
+    s=l>0.5?d/(2-max-min):d/(max+min);
+    if(max===r)h=((g-b)/d+(g<b?6:0))/6;
+    else if(max===g)h=((b-r)/d+2)/6;
+    else h=((r-g)/d+4)/6;
+  }
+  return {h,s,l,chroma:d};
+}
+function hslToRgb(h,s,l){
+  h=((h%1)+1)%1;
+  let r=l,g=l,b=l;
+  if(s){
+    const hue2rgb=(p,q,t)=>{
+      t=((t%1)+1)%1;
+      if(t<1/6)return p+(q-p)*6*t;
+      if(t<1/2)return q;
+      if(t<2/3)return p+(q-p)*(2/3-t)*6;
+      return p;
+    };
+    const q=l<0.5?l*(1+s):l+s-l*s;
+    const p=2*l-q;
+    r=hue2rgb(p,q,h+1/3);
+    g=hue2rgb(p,q,h);
+    b=hue2rgb(p,q,h-1/3);
+  }
+  return [clamp01(r),clamp01(g),clamp01(b)];
+}
+function warmDirtFactor(h){
+  const centers=[52/360,72/360,92/360];
+  let best=0;
+  for(const c of centers){
+    const d=Math.min(Math.abs(h-c),1-Math.abs(h-c));
+    best=Math.max(best,1-clamp(d/0.075,0,1));
+  }
+  return best;
+}
+function colorQuality(color,weight){
+  const hsl=rgbToHsl(color[0],color[1],color[2]);
+  const lumComfort=1-clamp(Math.abs(hsl.l-0.52)/0.42,0,1);
+  const vivid=clamp((hsl.s-0.16)/0.64,0,1)*0.65+clamp((hsl.chroma-0.12)/0.58,0,1)*0.35;
+  const warmDirt=warmDirtFactor(hsl.h)*clamp((0.58-hsl.s)/0.42,0,1)*clamp((0.70-hsl.l)/0.45,0,1);
+  const grayDirt=clamp((0.28-hsl.s)/0.28,0,1)*clamp((0.70-hsl.l)/0.50,0,1);
+  const coverPresence=Math.sqrt(Math.max(weight,0));
+  return coverPresence*(0.28+vivid*0.55+lumComfort*0.22)*(1-warmDirt*0.72-grayDirt*0.55);
+}
+function beautifyCoverColor(color){
+  const hsl=rgbToHsl(color[0],color[1],color[2]);
+  const warmDirt=warmDirtFactor(hsl.h);
+  const isDirtyWarm=warmDirt>0.35&&(hsl.s<0.58||hsl.l<0.50);
+  const isLowSat=hsl.s<0.24;
+  let s=hsl.s,l=hsl.l;
+  if(isDirtyWarm){
+    s=Math.max(s,0.56+warmDirt*0.10);
+    l=clamp(l,0.46,0.64);
+  }else if(isLowSat){
+    s=Math.max(s,0.36);
+    l=clamp(l,0.34,0.62);
+  }else{
+    s=clamp(s*1.16+0.05,0.24,0.86);
+    l=clamp(l,0.26,0.72);
+  }
+  return hslToRgb(hsl.h,s,l);
+}
+function deriveCoverColor(seed,index){
+  const hsl=rgbToHsl(seed[0],seed[1],seed[2]);
+  const offsets=[0,0.055,-0.07,0.13,-0.16];
+  const h=hsl.h+offsets[index%offsets.length];
+  const s=clamp(Math.max(hsl.s,0.44)+0.05*(index%2),0.40,0.78);
+  const l=clamp(0.38+0.07*(index%4),0.34,0.62);
+  return hslToRgb(h,s,l);
+}
+function capWarmMuddyWeights(slots){
+  let overflow=0;
+  const caps=slots.map(slot=>{
+    const hsl=rgbToHsl(slot.color[0],slot.color[1],slot.color[2]);
+    const dirty=warmDirtFactor(hsl.h)*clamp((0.62-hsl.s)/0.46,0,1)+clamp((0.23-hsl.s)/0.23,0,1)*0.55;
+    if(dirty>0.30)return 0.14;
+    if(warmDirtFactor(hsl.h)>0.50)return 0.22;
+    return 0.48;
+  });
+  for(let i=0;i<slots.length;i++){
+    if(slots[i].w>caps[i]){
+      overflow+=slots[i].w-caps[i];
+      slots[i].w=caps[i];
+    }
+  }
+  if(overflow<=0)return;
+  const receivers=slots.map((slot,i)=>({i,room:Math.max(0,0.50-slot.w),q:colorQuality(slot.color,slot.w)}))
+    .filter(x=>x.room>0.001)
+    .sort((a,b)=>b.q-a.q);
+  const roomSum=receivers.reduce((a,x)=>a+x.room,0);
+  if(roomSum<=0){
+    const add=overflow/slots.length;
+    for(const slot of slots)slot.w+=add;
+    return;
+  }
+  for(const x of receivers)slots[x.i].w+=overflow*(x.room/roomSum);
+}
+// 固定顺序（高→低）：青、蓝、品红、红、暖色点缀。把提取色按色相最近匹配到这5个目标位
 // 同时按各色在封面中的占比分配高度区间（占比大的层更宽），返回排好的色 + 累计占比阈值
-const FIXED_ORDER_TARGETS=[[0,1,1],[0,0.3,1],[1,0,0.5],[1,0,0],[1,1,0]]; // 青蓝品红红黄
+const FIXED_ORDER_TARGETS=[[0,1,1],[0,0.3,1],[1,0,0.5],[1,0,0],[1,0.58,0.08]]; // cyan/blue/magenta/red/warm accent
+const LEGACY_FIXED_ORDER_TARGETS=[[0,1,1],[0,0.3,1],[1,0,0.5],[1,0,0],[1,1,0]];
 function mapToFixedOrder(items){
   // items: [{color,w}], 每个匹配到最接近的固定目标位（一对一，匈牙利贪心）
   const n=items.length;
@@ -211,7 +317,8 @@ function mapToFixedOrder(items){
   const slots=[null,null,null,null,null]; // 每个目标位放一个 item
   // 对每个目标位，找未用 item 中色相最近的
   for(let s=0;s<5;s++){
-    const target=FIXED_ORDER_TARGETS[s];
+    const targets=shouldUseLegacyCoverColors()?LEGACY_FIXED_ORDER_TARGETS:FIXED_ORDER_TARGETS;
+    const target=targets[s];
     let best=-1,bestD=Infinity;
     for(let i=0;i<n;i++){
       if(usedItem[i])continue;
@@ -220,8 +327,14 @@ function mapToFixedOrder(items){
     }
     if(best>=0){slots[s]=items[best];usedItem[best]=true}
   }
-  // 补未填满的位（用默认色均分）
-  for(let s=0;s<5;s++)if(!slots[s])slots[s]={color:FIXED_ORDER_TARGETS[s],w:0.2};
+  if(shouldUseLegacyCoverColors()){
+    for(let s=0;s<5;s++)if(!slots[s])slots[s]={color:LEGACY_FIXED_ORDER_TARGETS[s],w:0.2};
+  }else{
+    // 补未填满的位：从封面主色派生，不使用默认色板
+    const seed=(items[0]&&items[0].color)||[0.4,0.45,0.5];
+    for(let s=0;s<5;s++)if(!slots[s])slots[s]={color:deriveCoverColor(seed,s),w:0.16};
+    capWarmMuddyWeights(slots);
+  }
   // 归一化占比，算累计阈值（层 s 的上边界 = 前 s+1 个占比之和）
   let sumW=slots.reduce((a,x)=>a+x.w,0)||1;
   let cum=0;
@@ -254,6 +367,7 @@ function lerpColors(){
 
 // 从封面提取 5 个主色：缩到 64x64 → 中位切分量化
 function extractCoverColors(img){
+  if(shouldUseLegacyCoverColors())return extractCoverColorsLegacy(img);
   try{
     const cv=document.createElement('canvas');
     cv.width=64;cv.height=64;
@@ -268,25 +382,30 @@ function extractCoverColors(img){
     }
     avgLum/=lumCount||1;
     const isBright=avgLum>0.45;  // 亮封面（如天使 avgLum≈0.49，浅色背景）
-    const satMin=isBright?0.15:0.06;
-    const lumMax=isBright?0.72:0.95;
-    const lumMin=isBright?0.12:0.08;
-    const boost=isBright?0.5:1.25;
-    const clampMax=isBright?0.75:1.0;  // 亮封面压更低，给shader的sqrt提亮+高光留余量防过曝
+    const satMin=isBright?0.20:0.16;
+    const lumMax=isBright?0.78:0.88;
+    const lumMin=isBright?0.16:0.10;
     // 收集像素 [r,g,b]，按自适应阈值过滤
-    const px=[];
+    const px=[],relaxed=[];
     for(let i=0;i<data.length;i+=4){
       const r=data[i]/255,g=data[i+1]/255,b=data[i+2]/255;
       const max=Math.max(r,g,b),min=Math.min(r,g,b);
       const sat=max-min;
       const lum=(max+min)/2;
+      const hsl=rgbToHsl(r,g,b);
+      const warmDirt=warmDirtFactor(hsl.h);
+      const dirtyWarm=warmDirt>0.35&&hsl.s<0.50&&lum<0.68;
+      const dirtyGray=hsl.s<0.18&&lum<0.72;
+      if(lum>=0.05&&lum<=0.94)relaxed.push([r,g,b]);
       if(sat<satMin)continue;
       if(lum<lumMin||lum>lumMax)continue;
+      if(dirtyWarm||dirtyGray)continue;
       px.push([r,g,b]);
     }
-    if(px.length<20)return null;
+    const sourcePx=px.length>=20?px:relaxed;
+    if(sourcePx.length<1)return null;
     // 中位切分：递归找 5 个色块（不可切的 box 跳过，避免产生空 box）
-    const boxes=[px];
+    const boxes=[sourcePx];
     while(boxes.length<5){
       // 选范围最大且可切(点数>1且range>0)的 box
       let bi=-1,bestR=-1;
@@ -301,14 +420,17 @@ function extractCoverColors(img){
       const cut=medianCut(boxes[bi]);
       boxes.splice(bi,1,cut[0],cut[1]);
     }
-    // 每个 box 取平均色+像素占比，按像素数排序取前5，增强饱和度
-    const total=px.length||1;
-    const all=boxes.map(boxAvg).sort((a,b)=>b.w-a.w).slice(0,5).map(c=>{
-      const max=Math.max(c.r,c.g,c.b),min=Math.min(c.r,c.g,c.b);
-      return {color:[Math.min(clampMax,c.r+(c.r-(max+min)/2)*boost),Math.min(clampMax,c.g+(c.g-(max+min)/2)*boost),Math.min(clampMax,c.b+(c.b-(max+min)/2)*boost)],w:c.w/total};
-    });
-    // 不足5个补默认(均分占比)
-    while(all.length<5)all.push({color:DEFAULT_COLORS[all.length],w:0.2});
+    // 每个 box 取平均色+像素占比，按鲜明度和观感评分取前5
+    const total=sourcePx.length||1;
+    const all=boxes.map(boxAvg).map(c=>{
+      const raw=[c.r,c.g,c.b];
+      const color=beautifyCoverColor(raw);
+      const w=c.w/total;
+      return {color,w,score:colorQuality(color,w)};
+    }).sort((a,b)=>b.score-a.score).slice(0,5).map(({color,w})=>({color,w}));
+    // 不足5个时从封面主色派生补齐，不回退默认色板
+    const seed=(all[0]&&all[0].color)||beautifyCoverColor(sourcePx[0]);
+    while(all.length<5)all.push({color:deriveCoverColor(seed,all.length),w:0.12});
     return all;
   }catch(e){console.warn('cover color extract failed',e);return null}
 }
@@ -325,6 +447,64 @@ function medianCut(pts){
 function boxAvg(pts){
   let r=0,g=0,b=0;for(const p of pts){r+=p[0];g+=p[1];b+=p[2]}
   const n=pts.length||1;return{r:r/n,g:g/n,b:b/n,w:pts.length};
+}
+function shouldUseLegacyCoverColors(){
+  const el=document.querySelector('.title');
+  const title=String(el&&el.textContent||'').trim();
+  return title.includes('夏日漱石')||title==='Reminder';
+}
+function extractCoverColorsLegacy(img){
+  try{
+    const cv=document.createElement('canvas');
+    cv.width=64;cv.height=64;
+    const cx=cv.getContext('2d',{willReadFrequently:true});
+    cx.drawImage(img,0,0,64,64);
+    const data=cx.getImageData(0,0,64,64).data;
+    let avgLum=0,lumCount=0;
+    for(let i=0;i<data.length;i+=4){
+      const r=data[i]/255,g=data[i+1]/255,b=data[i+2]/255;
+      avgLum+=(Math.max(r,g,b)+Math.min(r,g,b))/2;lumCount++;
+    }
+    avgLum/=lumCount||1;
+    const isBright=avgLum>0.45;
+    const satMin=isBright?0.15:0.06;
+    const lumMax=isBright?0.72:0.95;
+    const lumMin=isBright?0.12:0.08;
+    const boost=isBright?0.5:1.25;
+    const clampMax=isBright?0.75:1.0;
+    const px=[];
+    for(let i=0;i<data.length;i+=4){
+      const r=data[i]/255,g=data[i+1]/255,b=data[i+2]/255;
+      const max=Math.max(r,g,b),min=Math.min(r,g,b);
+      const sat=max-min;
+      const lum=(max+min)/2;
+      if(sat<satMin)continue;
+      if(lum<lumMin||lum>lumMax)continue;
+      px.push([r,g,b]);
+    }
+    if(px.length<20)return null;
+    const boxes=[px];
+    while(boxes.length<5){
+      let bi=-1,bestR=-1;
+      for(let i=0;i<boxes.length;i++){
+        const b=boxes[i];
+        if(b.length<2)continue;
+        const r=boxRange(b);
+        if(r<=0)continue;
+        if(r>bestR){bestR=r;bi=i}
+      }
+      if(bi<0)break;
+      const cut=medianCut(boxes[bi]);
+      boxes.splice(bi,1,cut[0],cut[1]);
+    }
+    const total=px.length||1;
+    const all=boxes.map(boxAvg).sort((a,b)=>b.w-a.w).slice(0,5).map(c=>{
+      const max=Math.max(c.r,c.g,c.b),min=Math.min(c.r,c.g,c.b);
+      return {color:[Math.min(clampMax,c.r+(c.r-(max+min)/2)*boost),Math.min(clampMax,c.g+(c.g-(max+min)/2)*boost),Math.min(clampMax,c.b+(c.b-(max+min)/2)*boost)],w:c.w/total};
+    });
+    while(all.length<5)all.push({color:DEFAULT_COLORS[all.length],w:0.2});
+    return all;
+  }catch(e){console.warn('legacy cover color extract failed',e);return null}
 }
 // 加载封面并提取颜色
 function loadCoverColors(){

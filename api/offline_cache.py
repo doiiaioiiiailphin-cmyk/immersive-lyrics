@@ -43,7 +43,7 @@ class OfflineCacheError(Exception):
         super().__init__(message)
 
 
-def cache_track(provider, song_id, level='standard', title='', artist='', duration=None, qq_song_id=None, cover_url=''):
+def cache_track(provider, song_id, level='standard', title='', artist='', duration=None, qq_song_id=None, cover_url='', media_mid=None):
     provider = _safe_provider(provider)
     song_id = _safe_song_id(provider, song_id)
     level = _safe_level(level)
@@ -65,7 +65,7 @@ def cache_track(provider, song_id, level='standard', title='', artist='', durati
 
     os.makedirs(media_dir, exist_ok=True)
     _clear_partial_files(media_dir)
-    url_info = _song_url(provider, song_id, level)
+    url_info = _song_url(provider, song_id, level, media_mid=media_mid)
     if not url_info or not url_info.get('url'):
         raise OfflineCacheError('NO_PERMISSION', '无法获取歌曲播放地址，可能需要会员或暂无版权', False)
 
@@ -74,7 +74,7 @@ def cache_track(provider, song_id, level='standard', title='', artist='', durati
     filename = 'audio' + ext
     tmp_path = os.path.join(media_dir, filename + '.part')
     final_path = os.path.join(media_dir, filename)
-    _download(url_info['url'], tmp_path, provider, MAX_AUDIO_BYTES, '音频')
+    _download_first_available(url_info, tmp_path, provider, MAX_AUDIO_BYTES, '音频')
     os.replace(tmp_path, final_path)
 
     manifest = {
@@ -167,6 +167,29 @@ def _ensure_sidecars(provider, song_id, media_dir, manifest, duration=None, qq_s
     return changed
 
 
+def _download_first_available(url_info, tmp_path, provider, max_bytes, label):
+    urls = [u for u in (url_info.get('urls') or []) if u]
+    if not urls and url_info.get('url'):
+        urls = [url_info['url']]
+    last_error = None
+    for url in urls:
+        try:
+            _download(url, tmp_path, provider, max_bytes, label)
+            return
+        except OfflineCacheError as e:
+            last_error = e
+            try:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+            except OSError:
+                pass
+            if not e.retryable and e.code != 'UPSTREAM_ERROR':
+                break
+    if last_error:
+        raise last_error
+    raise OfflineCacheError('UPSTREAM_ERROR', '%s下载失败：没有可用地址' % label, True)
+
+
 def _has_manifest_file(media_dir, manifest, kind):
     entry = (manifest.get('files') or {}).get(kind) or {}
     rel = entry.get('path')
@@ -224,10 +247,10 @@ def _cache_lyrics(provider, song_id, media_dir, duration=None, qq_song_id=None):
     return {'path': 'lyrics.json', 'mime': 'application/json; charset=utf-8', 'size': os.path.getsize(path)}
 
 
-def _song_url(provider, song_id, level):
+def _song_url(provider, song_id, level, media_mid=None):
     try:
         if provider == 'qq':
-            return qq_get_song_url(song_id, level=level)
+            return qq_get_song_url(song_id, level=level, media_mid=media_mid)
         if provider == 'bilibili':
             return bilibili_get_song_url(song_id, level=level)
         return netease_get_song_url(song_id, level=level)

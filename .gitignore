@@ -5,7 +5,9 @@ assets/*
 !assets/app-icon.svg
 
 # Build outputs
-build/
+build/*
+!build/
+!build/installer.nsh
 release*/
 dist/
 out/
@@ -56,4 +58,4 @@ Thumbs.db
 
 # Accidental shell fragments
 1)*
-[{]round*
+{round*

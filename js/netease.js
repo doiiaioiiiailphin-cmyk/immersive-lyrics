@@ -230,11 +230,13 @@ const NetEase = (function () {
     return request(appendProvider('/api/song/' + encodeURIComponent(id), provider));
   }
 
-  function songUrl(id, level, provider, waitForPrewarm) {
+  function songUrl(id, level, provider, waitForPrewarm, options) {
+    options = options || {};
     let url = '/api/song-url/' + encodeURIComponent(id);
     if (level) url += '?level=' + encodeURIComponent(level);
     url = appendProvider(url, provider);
     if (waitForPrewarm) url += (url.includes('?') ? '&' : '?') + 'wait=1';
+    if (options.mediaMid) url += (url.includes('?') ? '&' : '?') + 'media_mid=' + encodeURIComponent(options.mediaMid);
     return request(url);
   }
 
@@ -251,10 +253,13 @@ const NetEase = (function () {
     return appendProvider('/api/cover/' + encodeURIComponent(id), provider);
   }
 
-  function streamUrl(id, level, provider) {
+  function streamUrl(id, level, provider, options) {
+    options = options || {};
     let url = '/api/stream/' + encodeURIComponent(id);
     if (level) url += '?level=' + encodeURIComponent(level);
-    return appendProvider(url, provider);
+    url = appendProvider(url, provider);
+    if (options.mediaMid) url += (url.includes('?') ? '&' : '?') + 'media_mid=' + encodeURIComponent(options.mediaMid);
+    return url;
   }
 
   function bilibiliResolve(input) {

@@ -5,11 +5,13 @@ const list=document.getElementById('list'),audio=document.getElementById('audio'
 const bilibiliVideoBg=document.getElementById('bilibili-video-bg');
 const playShapeLeft=document.getElementById('play-shape-left'),playShapeRight=document.getElementById('play-shape-right'),modeButton=document.getElementById('play-mode'),muteButton=document.getElementById('mute'),settingsButton=document.getElementById('settings'),eqOverlay=document.getElementById('eq-overlay'),eqPanel=document.getElementById('eq-panel'),eqReset=document.getElementById('eq-reset'),cacheCurrentButton=document.getElementById('cache-current-track'),cacheCurrentLabel=document.getElementById('cache-current-label'),cacheCurrentStatus=document.getElementById('cache-current-status');
 const prevButton=document.getElementById('prev'),nextButton=document.getElementById('next'),eqSliders=[...document.querySelectorAll('[data-eq]')],eqPresetButtons=[...document.querySelectorAll('[data-eq-preset]')];
+const cacheCurrentIcon=document.querySelector('.cache-current-icon');
 let active=0,running=false,targetOffset=0;
 let data=[],wordEls=[];
 let currentSongIdx=0;
 let playRequestId=0;
 let pendingAudioReady=Promise.resolve(true);
+let cacheProgressTimer=0;
 
 const ADDED_TRACKS_KEY='player_added_tracks';
 const PLAY_MODE_KEY='player_play_mode';
@@ -18,6 +20,8 @@ const GLOBAL_PROGRESS_KEY='player_progress';
 const TRACK_PROGRESS_KEY='player_track_progress';
 const NETEASE_STREAM_LEVELS=['standard','higher','exhigh'];
 const EMPTY_COVER_SRC='data:image/svg+xml;charset=utf-8,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 360"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="rgba(255,255,255,.34)" offset="0"/><stop stop-color="rgba(255,255,255,.08)" offset="1"/></linearGradient></defs><rect width="360" height="360" rx="26" fill="url(#g)"/><circle cx="180" cy="180" r="66" fill="none" stroke="rgba(255,255,255,.58)" stroke-width="12"/><circle cx="180" cy="180" r="16" fill="rgba(255,255,255,.62)"/><path d="M224 118v96a28 28 0 1 1-12-23V143l-74 16v72a28 28 0 1 1-12-23v-86l98-22Z" fill="rgba(255,255,255,.72)"/></svg>');
+const CACHE_VINYL_ICON='<svg viewBox="-60 -60 120 120" aria-hidden="true"><defs><g id="cache-vinyl"><circle cx="0" cy="0" r="48"/><circle class="cache-label-disc" cx="0" cy="0" r="14"/><circle class="cache-hole" cx="0" cy="0" r="3"/><circle class="cache-label-dash" cx="0" cy="0" r="10"/><circle class="cache-groove g1" cx="0" cy="0" r="20"/><circle class="cache-groove g2" cx="0" cy="0" r="28"/><circle class="cache-groove g3" cx="0" cy="0" r="38"/><circle class="cache-groove g4" cx="0" cy="0" r="44"/></g><clipPath id="cache-cp0"><path d="M5.41-.09 3.13-92.44 17.95-197.23 64.07-150.74 17.67-3.04Z"/></clipPath><clipPath id="cache-cp1"><path d="M46.36 16.38 167.83 52.78 231.45.26 62.82-151.81 16.42-4.11Z"/></clipPath><clipPath id="cache-cp2"><path d="M1.17 2.51 5.46-1.51 17.72-4.46 47.65 16.03 20.97 16.25Z"/></clipPath><clipPath id="cache-cp3"><path d="M20.74 15.01 47.43 14.79 168.9 51.2-.5 228.85-31.49 190.23-3.16 31.02Z"/></clipPath><clipPath id="cache-cp4"><path d="M1.4 2.39 21.19 16.13-2.71 32.14-5.78 5.38Z"/></clipPath><clipPath id="cache-cp5"><path d="M-5 4.81-17.26-1.82-188.3 32.63-30.25 190.78-1.93 31.58Z"/></clipPath><clipPath id="cache-cp6"><path d="M-16.96.14 4.48-92.58 19.3-197.37 1.03-220.3-230.3 1.19-188 34.59Z"/></clipPath><clipPath id="cache-cp7"><path d="M1.49 2.86 5.78-1.16 3.5-93.51-17.95-.79-5.69 5.85Z"/></clipPath></defs><g class="cache-outer-ring"><circle class="cache-ring-base" cx="0" cy="0" r="55"/><circle class="cache-ring-dash" cx="0" cy="0" r="55"/></g><g class="cache-vinyl-assembly"><g class="cache-fragment" style="--i:0;--cx:21.65;--cy:-88.71" clip-path="url(#cache-cp0)"><use href="#cache-vinyl"/></g><g class="cache-fragment" style="--i:1;--cx:104.98;--cy:-17.3" clip-path="url(#cache-cp1)"><use href="#cache-vinyl"/></g><g class="cache-fragment" style="--i:2;--cx:18.59;--cy:5.77" clip-path="url(#cache-cp2)"><use href="#cache-vinyl"/></g><g class="cache-fragment" style="--i:3;--cx:33.65;--cy:88.52" clip-path="url(#cache-cp3)"><use href="#cache-vinyl"/></g><g class="cache-fragment" style="--i:4;--cx:3.53;--cy:14.01" clip-path="url(#cache-cp4)"><use href="#cache-vinyl"/></g><g class="cache-fragment" style="--i:5;--cx:-48.55;--cy:51.6" clip-path="url(#cache-cp5)"><use href="#cache-vinyl"/></g><g class="cache-fragment" style="--i:6;--cx:-68.41;--cy:-79.06" clip-path="url(#cache-cp6)"><use href="#cache-vinyl"/></g><g class="cache-fragment" style="--i:7;--cx:-2.57;--cy:-17.35" clip-path="url(#cache-cp7)"><use href="#cache-vinyl"/></g></g><g class="cache-import-mark"><path class="cache-import-arrow" d="M0-22V4m-10-10L0 4l10-10"/><path d="M-18 12h36v12h-36z"/></g></svg>';
+if(cacheCurrentIcon)cacheCurrentIcon.innerHTML=CACHE_VINYL_ICON;
 const EQ_BANDS=[
   {id:'sub',type:'lowshelf',freq:64,q:0.7},
   {id:'bass',type:'peaking',freq:180,q:0.95},
@@ -64,7 +68,7 @@ function triggerSoundIcon(muted){
 function providerOf(track){return track&&track.source==='bilibili'?'bilibili':(track&&track.source==='qq'?'qq':(track&&track.source==='netease'?'netease':'local'))}
 function providerTrackId(track){return track&&track.source==='bilibili'?(track.bilibiliId||((track.bvid&&track.cid)?track.bvid+':'+track.cid:track.id)):(track&&track.source==='qq'?(track.qqId||track.songmid||track.id):(track&&(track.neteaseId||track.id)))}
 function playlistKey(track){const p=providerOf(track);return p==='local'?'local:'+track.id:p+':'+providerTrackId(track)}
-function providerStreamUrl(provider,id,level){let url='/api/stream/'+encodeURIComponent(id)+'?level='+encodeURIComponent(level||'standard');if(provider&&provider!=='netease')url+='&provider='+encodeURIComponent(provider);return url}
+function providerStreamUrl(provider,id,level,options){options=options||{};let url='/api/stream/'+encodeURIComponent(id)+'?level='+encodeURIComponent(level||'standard');if(provider&&provider!=='netease')url+='&provider='+encodeURIComponent(provider);if(options.mediaMid)url+='&media_mid='+encodeURIComponent(options.mediaMid);return url}
 function providerCoverUrl(provider,id){let url='/api/cover/'+encodeURIComponent(id);if(provider&&provider!=='netease')url+='?provider='+encodeURIComponent(provider);return url}
 function bilibiliLocalMediaUrl(mediaId,kind){return '/api/bilibili/media/'+encodeURIComponent(mediaId)+'/'+encodeURIComponent(kind)}
 function cachedMediaUrl(mediaId,kind){return '/api/cache/media/'+encodeURIComponent(mediaId)+'/'+encodeURIComponent(kind||'audio')}
@@ -139,7 +143,7 @@ function normalizeAddedTrack(track){
     id:id,
     title:String(track.title||track.name||'Untitled'),
     artist:String(track.artist||''),
-    audio:track.cacheMediaId?cachedAudioUrl(track.cacheMediaId):(track.audio&&String(track.audio).startsWith('/api/cache/')?track.audio:providerStreamUrl(provider,id,'standard')),
+    audio:track.cacheMediaId?cachedAudioUrl(track.cacheMediaId):(track.audio&&String(track.audio).startsWith('/api/cache/')?track.audio:providerStreamUrl(provider,id,'standard',{mediaMid:track.mediaMid||track.media_mid||''})),
     cover:(track.cacheMediaId&&track.cacheCover)?cachedMediaUrl(track.cacheMediaId,'cover'):(track.cover||providerCoverUrl(provider,id)),
     duration:Number(track.duration)||0,
     vip:track.vip||null,
@@ -160,7 +164,7 @@ function normalizeAddedTrack(track){
     _key:provider+':'+id,
   };
   if(provider==='netease')normalized.neteaseId=id;
-  if(provider==='qq'){normalized.qqId=id;normalized.songmid=track.songmid||id;normalized.qqSongId=track.qqSongId||undefined}
+  if(provider==='qq'){normalized.qqId=id;normalized.songmid=track.songmid||id;normalized.mediaMid=track.mediaMid||track.media_mid||undefined;normalized.qqSongId=track.qqSongId||undefined}
   if(provider==='bilibili')normalized.bilibiliId=id;
   return normalized;
 }
@@ -274,16 +278,56 @@ function currentCacheTarget(){
   const index=Math.max(0,Math.min(currentSongIdx,window.PLAYLIST.length-1));
   return window.PLAYLIST[index]||null;
 }
+function cacheProgressOf(song,cached,loading){
+  if(cached)return 1;
+  if(loading)return Math.max(0.02,Math.min(0.98,Number(song&&song._cacheProgress)||0));
+  return 0;
+}
+function setCacheProgress(song,value){
+  if(!song)return;
+  song._cacheProgress=Math.max(0,Math.min(1,Number(value)||0));
+  updateCacheControls();
+}
+function clearCacheProgressTimer(){
+  if(cacheProgressTimer){clearInterval(cacheProgressTimer);cacheProgressTimer=0}
+}
+function startCacheProgress(song){
+  clearCacheProgressTimer();
+  setCacheProgress(song,0.04);
+  cacheProgressTimer=setInterval(()=>{
+    if(!song||!song._caching){clearCacheProgressTimer();return}
+    const current=Number(song._cacheProgress)||0;
+    const next=current+(0.92-current)*0.055+0.003;
+    setCacheProgress(song,Math.min(0.92,next));
+  },180);
+}
+function pulseCacheStart(song){
+  if(!song)return;
+  song._cacheStarting=true;
+  updateCacheControls();
+  setTimeout(()=>{delete song._cacheStarting;updateCacheControls()},420);
+}
+function showCacheFailure(song){
+  if(!song)return;
+  song._cacheFailed=true;
+  song._cacheProgress=0;
+  updateCacheControls();
+  setTimeout(()=>{delete song._cacheFailed;updateCacheControls()},520);
+}
 function updateCacheControls(){
   if(!cacheCurrentButton)return;
   const song=currentCacheTarget();
   const box=cacheCurrentButton.closest('.settings-cache');
   const cached=!!(song&&(song.cacheMediaId||(song.source==='bilibili'&&song.localMediaId)));
   const loading=!!(song&&song._caching);
+  const progress=cacheProgressOf(song,cached,loading);
+  cacheCurrentButton.style.setProperty('--cache-progress',String(progress));
   cacheCurrentButton.disabled=!song||providerOf(song)==='local'||loading||cached;
   if(box){
     box.classList.toggle('cached',cached);
     box.classList.toggle('loading',loading);
+    box.classList.toggle('starting',!!(song&&song._cacheStarting));
+    box.classList.toggle('failed',!!(song&&song._cacheFailed));
   }
   if(cacheCurrentLabel)cacheCurrentLabel.textContent=loading?'缓存中...':(cached?'已缓存':'缓存当前歌曲');
   if(cacheCurrentStatus){
@@ -726,6 +770,9 @@ const Player = {
     }
     if (song._caching) return false;
     song._caching = true;
+    song._cacheProgress = 0;
+    pulseCacheStart(song);
+    startCacheProgress(song);
     updateCacheControls();
     try {
       const provider = providerOf(song);
@@ -738,6 +785,7 @@ const Player = {
         artist: song.artist || '',
         duration: song.duration || 0,
         qqSongId: song.qqSongId || '',
+        mediaMid: song.mediaMid || song.media_mid || '',
         cover: song.cover || '',
       });
       song.cacheMediaId = result.mediaId;
@@ -747,6 +795,8 @@ const Player = {
       song.audio = result.audio || cachedAudioUrl(result.mediaId);
       if (result.cover) song.cover = result.cover;
       if (window.LyricsStore && window.LyricsStore._cache) delete window.LyricsStore._cache[_lyricsKey(song)];
+      clearCacheProgressTimer();
+      song._cacheProgress = 1;
       delete song._caching;
       saveAddedTracks();
       updateCacheControls();
@@ -759,8 +809,9 @@ const Player = {
       setTimeout(()=>hint.classList.remove('show'),1800);
       return true;
     } catch (e) {
+      clearCacheProgressTimer();
       delete song._caching;
-      updateCacheControls();
+      showCacheFailure(song);
       hint.textContent='缓存失败：'+((e&&e.message)||e||'未知错误');
       hint.classList.add('show');
       setTimeout(()=>hint.classList.remove('show'),2600);
@@ -858,6 +909,7 @@ function prewarmOnlineAudio(song){
   if(!id||!token)return;
   let url='/api/song-url/'+encodeURIComponent(id)+'?level='+encodeURIComponent(getTrackStreamLevel(song));
   if(provider!=='netease')url+='&provider='+encodeURIComponent(provider);
+  if(provider==='qq'&&(song.mediaMid||song.media_mid))url+='&media_mid='+encodeURIComponent(song.mediaMid||song.media_mid);
   fetch(url,{
     headers:{'X-Player-Token':token},
     credentials:'same-origin',
@@ -876,7 +928,7 @@ async function ensureOnlineAudioReady(song){
   const provider=providerOf(song);
   const id=providerTrackId(song);
   try{
-    const info=await NetEase.songUrl(id,getTrackStreamLevel(song),provider,true);
+    const info=await NetEase.songUrl(id,getTrackStreamLevel(song),provider,true,{mediaMid:song.mediaMid||song.media_mid||''});
     return !!(info&&info.playable);
   }catch(e){
     console.warn('[player] 切歌预加载失败',id,e);
@@ -1352,9 +1404,9 @@ async function retryNextProviderSource(){
   if(!id)return false;
   if(provider==='qq'||provider==='bilibili'){
     try{
-      const info=await NetEase.songUrl(id,'standard',provider);
+      const info=await NetEase.songUrl(id,'standard',provider,false,{mediaMid:song.mediaMid||song.media_mid||''});
       if(!info||!info.playable)return false;
-      song.audio=providerStreamUrl(provider,id,'standard');
+      song.audio=providerStreamUrl(provider,id,'standard',{mediaMid:song.mediaMid||song.media_mid||''});
       saveAddedTracks();
       audio.pause();
       audio.src=song.audio;
@@ -1395,7 +1447,7 @@ async function describeCurrentAudioFailure(fallback){
   try{
     const level=getTrackStreamLevel(song);
     const provider=providerOf(song);
-    const info=await NetEase.songUrl(providerTrackId(song),level,provider);
+    const info=await NetEase.songUrl(providerTrackId(song),level,provider,false,{mediaMid:song.mediaMid||song.media_mid||''});
     if(info&&info.playable)return fallbackMessage;
     return info&&info.reason?info.reason:fallbackMessage;
   }catch(e){

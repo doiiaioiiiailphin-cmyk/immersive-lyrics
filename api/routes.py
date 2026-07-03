@@ -168,6 +168,8 @@ def _handle_provider_error(handler, e):
     if isinstance(e, QQMusicError):
         if e.code == 'upstream-timeout':
             send_json(handler, error('UPSTREAM_TIMEOUT', e.message, True), status=504)
+        elif e.code == 'NO_PERMISSION':
+            send_json(handler, error('FORBIDDEN', e.message, False), status=403)
         elif e.code in ('upstream-network', 'upstream-parse'):
             send_json(handler, error('UPSTREAM_ERROR', e.message, e.retryable), status=502)
         else:
@@ -448,6 +450,7 @@ def api_cache_track(handler, match):
             artist=body.get('artist') or '',
             duration=body.get('duration'),
             qq_song_id=body.get('qqSongId') or body.get('song_id'),
+            media_mid=body.get('mediaMid') or body.get('media_mid'),
             cover_url=body.get('cover') or '',
         )
     except OfflineCacheError as e:
@@ -666,12 +669,19 @@ def api_song_url(handler, match):
     level = query.get('level', 'standard')
     try:
         if provider == 'qq':
-            url_info = qq_get_song_url(song_id, level=level)
+            url_info = qq_get_song_url(song_id, level=level, media_mid=query.get('media_mid') or query.get('mediaMid'))
         elif provider == 'bilibili':
             url_info = bilibili_get_song_url(song_id, level=level)
         else:
             url_info = get_song_url(song_id, level=level)
     except (NetEaseError, QQMusicError, BilibiliError) as e:
+        if isinstance(e, QQMusicError) and e.code == 'NO_PERMISSION':
+            send_json(handler, ok({
+                'playable': False,
+                'reason': e.message,
+                'provider': provider,
+            }))
+            return
         _handle_provider_error(handler, e)
         return
 
@@ -683,9 +693,11 @@ def api_song_url(handler, match):
         }))
         return
     if query.get('wait') == '1':
-        prewarmed = wait_for_prewarm(song_id, level=level, provider=provider, timeout=5)
+        prewarmed = wait_for_prewarm(song_id, level=level, provider=provider, timeout=5,
+                                      media_mid=query.get('media_mid') or query.get('mediaMid'))
     else:
-        prewarm_stream(song_id, level=level, provider=provider)
+        prewarm_stream(song_id, level=level, provider=provider,
+                       media_mid=query.get('media_mid') or query.get('mediaMid'))
         prewarmed = False
 
     send_json(handler, ok({
@@ -780,7 +792,7 @@ def api_stream(handler, match):
     level = query.get('level', 'exhigh')
 
     try:
-        proxy_stream(handler, song_id, level=level, provider=provider)
+        proxy_stream(handler, song_id, level=level, provider=provider, media_mid=query.get('media_mid') or query.get('mediaMid'))
     except Exception as e:
         # 兜底：不崩溃，返回错误
         import logging

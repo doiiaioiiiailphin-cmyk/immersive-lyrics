@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Immersive Lyrics 后端服务器。
+"""Apple Music 歌词播放器后端服务器。
 
 P0 修复版：
     - 静态路径白名单（P0-1）：只允许 / /index.html /js/* /css/* /assets/*

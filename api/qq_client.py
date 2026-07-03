@@ -421,6 +421,19 @@ class QQMusicSession:
         result = response.get('result') or {}
         data = result.get('data') or {}
         if not data.get('musickey'):
+            self._set_login_token({
+                'musicid': music_id,
+                'musickey': music_key,
+                'loginType': 6,
+                'keyExpiresIn': 86400,
+                'musickeyCreateTime': int(time.time()),
+            })
+            return {
+                'code': 803,
+                'message': '鐧诲綍鎴愬姛',
+                'nickname': self.nickname,
+            }
+        if not data.get('musickey'):
             raise QQMusicError(
                 'login-failed',
                 data.get('errMsg') or result.get('msg') or 'QQ音乐登录失败',
@@ -483,8 +496,10 @@ class QQMusicSession:
                     event.get('music_id'),
                     event.get('music_key'),
                 )
-            finally:
+            except QQMusicError as e:
                 self._qr_sessions.pop(key, None)
+                return {'code': 800, 'message': e.message or 'QQ login failed, please refresh the QR code'}
+            self._qr_sessions.pop(key, None)
             return result
         return {'code': 801, 'message': '等待扫码'}
 
@@ -677,28 +692,19 @@ def _cache_qrc_after_song_id(cache_key, future, duration=None):
     future.add_done_callback(lambda done_future: _lyrics_executor.submit(on_done, done_future))
 
 
-def get_song_url(songmid, level='standard'):
+def get_song_url(songmid, level='standard', media_mid=None):
     if not _safe_mid(songmid):
         raise QQMusicError('bad-song-id', '无效的 QQ 音乐 ID')
-    cache_key = (str(qq.music_id or ''), str(songmid), level or 'standard')
+    level = level or 'standard'
+    if media_mid and not _safe_mid(str(media_mid)):
+        media_mid = None
+    media_mid = str(media_mid or _get_song_media_mid(songmid))
+    cache_key = (str(qq.music_id or ''), str(songmid), str(media_mid), level)
     with _song_url_cache_lock:
         cached = _song_url_cache.get(cache_key)
         if cached and time.monotonic() - cached[0] < SONG_URL_CACHE_TTL:
             return copy.deepcopy(cached[1])
-    if level in ('jyeffect', 'sky', 'dolby', 'hires', 'lossless'):
-        filenames = [
-            'F000%s%s.flac' % (songmid, songmid),
-            'M800%s%s.mp3' % (songmid, songmid),
-            'M500%s%s.mp3' % (songmid, songmid),
-        ]
-    elif level in ('exhigh', 'higher'):
-        filenames = [
-            'M800%s%s.mp3' % (songmid, songmid),
-            'M500%s%s.mp3' % (songmid, songmid),
-        ]
-    else:
-        filenames = ['M500%s%s.mp3' % (songmid, songmid)]
-    filenames.append('RS02%s.mp3' % songmid)
+    filenames = _qq_audio_filenames(level, media_mid, songmid)
     song_types = [0] * len(filenames)
     song_types[-1] = 1
     data = qq.gateway_request({
@@ -717,14 +723,18 @@ def get_song_url(songmid, level='standard'):
     })
     payload = ((data.get('result') or {}).get('data') or {})
     sip = payload.get('sip') or ['https://isure.stream.qqmusic.qq.com/']
-    for item in payload.get('midurlinfo') or []:
+    items = payload.get('midurlinfo') or []
+    for item in items:
         purl = item.get('purl') or item.get('wifiurl') or item.get('flowurl')
         if purl:
-            base = sip[0] if sip else ''
+            urls = _qq_stream_url_candidates(purl, sip)
+            if not urls:
+                continue
             result = {
-                'url': purl if purl.startswith('http') else base + purl,
-                'level': level or 'standard',
-                'requested_level': level or 'standard',
+                'url': urls[0],
+                'urls': urls,
+                'level': level,
+                'requested_level': level,
                 'trial': str(item.get('filename') or '').startswith('RS02'),
                 'type': item.get('filename', '').rsplit('.', 1)[-1] or 'audio',
                 'br': 0,
@@ -733,11 +743,112 @@ def get_song_url(songmid, level='standard'):
             with _song_url_cache_lock:
                 _song_url_cache[cache_key] = (time.monotonic(), copy.deepcopy(result))
             return result
+    reason = _qq_vkey_denied_reason(items)
+    if reason:
+        raise QQMusicError('NO_PERMISSION', reason, retryable=False)
     return None
 
 
+def _qq_stream_url_candidates(purl, sip):
+    purl = str(purl or '').strip()
+    if not purl:
+        return []
+    if purl.startswith('http://') or purl.startswith('https://'):
+        return [purl]
+    bases = [str(base or '').strip() for base in (sip or []) if str(base or '').strip()]
+    if not bases:
+        bases = ['https://isure.stream.qqmusic.qq.com/']
+    candidates = []
+    for base in bases:
+        url = base + purl if base.endswith('/') or purl.startswith('/') else base + '/' + purl
+        if url not in candidates:
+            candidates.append(url)
+    return candidates
+
+
+def _qq_stream_url_available(url):
+    req = urllib.request.Request(url, headers={
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Referer': 'https://y.qq.com/',
+        'Range': 'bytes=0-0',
+    })
+    try:
+        resp = urllib.request.urlopen(req, timeout=4)
+        try:
+            return resp.status in (200, 206)
+        finally:
+            resp.close()
+    except urllib.error.HTTPError as e:
+        if e.code in (403, 404):
+            return False
+        return True
+    except urllib.error.URLError:
+        return True
+
+
+def _get_song_media_mid(songmid):
+    try:
+        detail = get_song_detail(songmid)
+        media_mid = detail.get('mediaMid') or detail.get('media_mid') or detail.get('strMediaMid')
+        if media_mid and _safe_mid(str(media_mid)):
+            return str(media_mid)
+    except QQMusicError as e:
+        if e.code not in ('not-found', 'bad-song-id'):
+            print('[qq] song detail fallback for vkey: %s' % e)
+    return str(songmid)
+
+
+def _qq_audio_filenames(level, media_mid, songmid):
+    media_mid = str(media_mid or songmid)
+    songmid = str(songmid)
+    if level in ('jyeffect', 'sky', 'dolby', 'hires', 'lossless'):
+        names = [
+            'F000%s.flac' % media_mid,
+            'M800%s.mp3' % media_mid,
+            'M500%s.mp3' % media_mid,
+            'C400%s.m4a' % media_mid,
+        ]
+    elif level in ('exhigh', 'higher'):
+        names = [
+            'M800%s.mp3' % media_mid,
+            'M500%s.mp3' % media_mid,
+            'C400%s.m4a' % media_mid,
+        ]
+    else:
+        names = [
+            'C400%s.m4a' % media_mid,
+            'M500%s.mp3' % media_mid,
+        ]
+    names.append('RS02%s.mp3' % songmid)
+    seen = set()
+    result = []
+    for name in names:
+        if name not in seen:
+            seen.add(name)
+            result.append(name)
+    return result
+
+
+def _qq_vkey_denied_reason(items):
+    for item in items or []:
+        msg = item.get('msg') or item.get('tips') or item.get('errmsg') or item.get('err_msg')
+        if msg:
+            return str(msg)
+        code = item.get('code')
+        result = item.get('result')
+        errtype = item.get('errtype')
+        if code not in (None, 0) or result not in (None, 0) or errtype not in (None, 0):
+            return '当前 QQ 音乐账号无法获取该歌曲播放地址，可能需要会员、版权受限或登录凭证已失效'
+    return ''
+
+
 def _simplify_song(raw):
-    mid = raw.get('songmid') or raw.get('mid') or raw.get('strMediaMid') or raw.get('media_mid')
+    file_info = raw.get('file') or {}
+    mid = raw.get('songmid') or raw.get('mid') or raw.get('songMid') or raw.get('strMediaMid') or raw.get('media_mid')
+    media_mid = (
+        raw.get('strMediaMid') or raw.get('media_mid') or raw.get('mediaMid') or
+        file_info.get('media_mid') or file_info.get('mediaMid') or file_info.get('strMediaMid') or mid
+    )
     album = raw.get('album') or {}
     albummid = raw.get('albummid') or album.get('mid') or raw.get('albumMid') or ''
     singers = raw.get('singer') or raw.get('singers') or []
@@ -750,6 +861,7 @@ def _simplify_song(raw):
     return {
         'id': str(mid or ''),
         'songmid': str(mid or ''),
+        'mediaMid': str(media_mid or ''),
         'qqSongId': raw.get('id') or raw.get('songid') or raw.get('songId') or '',
         'name': raw.get('songname') or raw.get('name') or raw.get('title') or '',
         'artist': artist,

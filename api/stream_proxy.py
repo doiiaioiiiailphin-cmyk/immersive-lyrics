@@ -46,14 +46,14 @@ _prewarm_inflight = set()
 _prefix_ready = threading.Condition(_prefix_cache_lock)
 
 
-def _get_cached_url(song_id, level, force_refresh=False, provider='netease'):
+def _get_cached_url(song_id, level, force_refresh=False, provider='netease', media_mid=None):
     """获取歌曲 URL（带短缓存）。
 
     返回 url_info dict 或 None。
     流式传输期间不持锁，锁只保护"检查缓存+刷新 URL"过程。
     """
     with _url_cache_lock:
-        cache_key = (provider, str(song_id), level or 'exhigh')
+        cache_key = (provider, str(song_id), level or 'exhigh', str(media_mid or ''))
         if not force_refresh:
             cached = _url_cache.get(cache_key)
             if cached:
@@ -63,7 +63,7 @@ def _get_cached_url(song_id, level, force_refresh=False, provider='netease'):
         # 缓存未命中或过期，获取新 URL
         try:
             if provider == 'qq':
-                url_info = qq_get_song_url(song_id, level=level or 'standard')
+                url_info = qq_get_song_url(song_id, level=level or 'standard', media_mid=media_mid)
             elif provider == 'bilibili':
                 url_info = bilibili_get_song_url(song_id, level=level or 'standard')
             else:
@@ -75,18 +75,18 @@ def _get_cached_url(song_id, level, force_refresh=False, provider='netease'):
         return url_info
 
 
-def _invalidate_url(song_id, level, provider='netease'):
+def _invalidate_url(song_id, level, provider='netease', media_mid=None):
     """清除某歌曲的 URL 缓存（403 时调用）。"""
     with _url_cache_lock:
-        cache_key = (provider, str(song_id), level or 'exhigh')
+        cache_key = (provider, str(song_id), level or 'exhigh', str(media_mid or ''))
         _url_cache.pop(cache_key, None)
     with _prefix_cache_lock:
         _prefix_cache.pop(cache_key, None)
 
 
-def prewarm_stream(song_id, level='standard', provider='netease'):
+def prewarm_stream(song_id, level='standard', provider='netease', media_mid=None):
     """Fetch and cache the first audio bytes in the background."""
-    cache_key = (provider, str(song_id), level or 'standard')
+    cache_key = (provider, str(song_id), level or 'standard', str(media_mid or ''))
     with _prefix_cache_lock:
         cached = _prefix_cache.get(cache_key)
         if cached and time.monotonic() - cached['ts'] < _prefix_cache_ttl:
@@ -98,7 +98,7 @@ def prewarm_stream(song_id, level='standard', provider='netease'):
     def worker():
         response = None
         try:
-            url_info = _get_cached_url(song_id, level, provider=provider)
+            url_info = _get_cached_url(song_id, level, provider=provider, media_mid=media_mid)
             if not url_info:
                 return
             headers = {
@@ -138,10 +138,10 @@ def prewarm_stream(song_id, level='standard', provider='netease'):
     threading.Thread(target=worker, name='stream-prewarm-%s' % song_id, daemon=True).start()
 
 
-def wait_for_prewarm(song_id, level='standard', provider='netease', timeout=5):
+def wait_for_prewarm(song_id, level='standard', provider='netease', timeout=5, media_mid=None):
     """Ensure the first audio chunk is cached, waiting briefly when necessary."""
-    cache_key = (provider, str(song_id), level or 'standard')
-    prewarm_stream(song_id, level=level, provider=provider)
+    cache_key = (provider, str(song_id), level or 'standard', str(media_mid or ''))
+    prewarm_stream(song_id, level=level, provider=provider, media_mid=media_mid)
     deadline = time.monotonic() + timeout
     with _prefix_ready:
         while True:
@@ -156,7 +156,7 @@ def wait_for_prewarm(song_id, level='standard', provider='netease', timeout=5):
             _prefix_ready.wait(remaining)
 
 
-def proxy_stream(handler, song_id, level='exhigh', provider='netease'):
+def proxy_stream(handler, song_id, level='exhigh', provider='netease', media_mid=None):
     """代理音频流。
 
     完整流程:
@@ -171,12 +171,12 @@ def proxy_stream(handler, song_id, level='exhigh', provider='netease'):
     range_header = handler.headers.get('Range')
     client_start = _parse_range_start(range_header)
     if range_header and client_start == 0 and _serve_cached_prefix(
-            handler, song_id, level, provider):
+            handler, song_id, level, provider, media_mid=media_mid):
         return
 
     # 1. 获取 URL
     try:
-        url_info = _get_cached_url(song_id, level, provider=provider)
+        url_info = _get_cached_url(song_id, level, provider=provider, media_mid=media_mid)
     except (NetEaseError, QQMusicError, BilibiliError) as e:
         _send_stream_error(handler, e)
         return
@@ -187,23 +187,28 @@ def proxy_stream(handler, song_id, level='exhigh', provider='netease'):
                          '该歌曲无法播放（无版权或需要会员）', retryable=False, status=403)
         return
 
-    # 2. 转发请求（最多重试一次用于 403 刷新）
-    for attempt in range(2):
+    # 2. 转发请求：先试同一个 vkey 返回的备用 CDN，再刷新 vkey。
+    max_attempts = max(2, len(url_info.get('urls') or []) + 1)
+    refreshed = False
+    for attempt in range(max_attempts):
         try:
             success = _forward_stream(handler, url_info, range_header, client_start,
-                                       song_id, level, provider)
+                                       song_id, level, provider, media_mid=media_mid)
             if success:
                 return
-            # _forward_stream 返回 False 表示需要重试（403 已刷新 URL）
-            if attempt == 0:
-                # 刷新 URL 重试
+            # _forward_stream 返回 False 表示当前 CDN 不可用，先换备用 URL。
+            if _advance_alternate_url(url_info):
+                continue
+            if not refreshed:
+                refreshed = True
                 try:
-                    url_info = _get_cached_url(song_id, level, force_refresh=True, provider=provider)
+                    url_info = _get_cached_url(song_id, level, force_refresh=True, provider=provider, media_mid=media_mid)
                 except (NetEaseError, QQMusicError, BilibiliError):
                     break
                 if not url_info:
                     break
-            # 已是第二次，不再重试
+                continue
+            break
         except _ClientDisconnected:
             return  # 客户端断开，静默退出
 
@@ -213,7 +218,7 @@ def proxy_stream(handler, song_id, level='exhigh', provider='netease'):
 
 
 def _forward_stream(handler, url_info, range_header, client_start,
-                     song_id, level, provider='netease'):
+                     song_id, level, provider='netease', media_mid=None):
     """转发单次流请求。
 
     返回 True 成功；False 表示需要重试（403，已刷新 URL）。
@@ -235,9 +240,14 @@ def _forward_stream(handler, url_info, range_header, client_start,
             timeout=(5, 10),
             stream=True,
         )
+        if resp.status_code in (403, 404) and (provider == 'qq' or resp.status_code == 403):
+            _invalidate_url(song_id, level, provider, media_mid=media_mid)
+            print('[stream] upstream %d, refresh URL retry: %s' % (resp.status_code, song_id))
+            resp.close()
+            return False
         if resp.status_code == 403:
             # CDN URL 过期或被拒，刷新后重试
-            _invalidate_url(song_id, level, provider)
+            _invalidate_url(song_id, level, provider, media_mid=media_mid)
             print('[stream] 上游 403，刷新 URL 重试: %s' % song_id)
             resp.close()
             return False
@@ -252,7 +262,7 @@ def _forward_stream(handler, url_info, range_header, client_start,
             resp.close()
             return True
     except requests.Timeout:
-        _invalidate_url(song_id, level, provider)
+        _invalidate_url(song_id, level, provider, media_mid=media_mid)
         print('[stream] 上游超时，刷新 URL 重试: %s' % song_id)
         return False
     except requests.RequestException as e:
@@ -320,8 +330,24 @@ def _forward_stream(handler, url_info, range_header, client_start,
     return True
 
 
-def _serve_cached_prefix(handler, song_id, level, provider):
-    cache_key = (provider, str(song_id), level or 'exhigh')
+def _advance_alternate_url(url_info):
+    urls = [u for u in (url_info.get('urls') or []) if u]
+    if len(urls) <= 1:
+        return False
+    current = url_info.get('url')
+    try:
+        idx = urls.index(current)
+    except ValueError:
+        idx = -1
+    next_idx = idx + 1
+    if next_idx >= len(urls):
+        return False
+    url_info['url'] = urls[next_idx]
+    return True
+
+
+def _serve_cached_prefix(handler, song_id, level, provider, media_mid=None):
+    cache_key = (provider, str(song_id), level or 'exhigh', str(media_mid or ''))
     with _prefix_cache_lock:
         cached = _prefix_cache.get(cache_key)
         if not cached or time.monotonic() - cached['ts'] >= _prefix_cache_ttl:

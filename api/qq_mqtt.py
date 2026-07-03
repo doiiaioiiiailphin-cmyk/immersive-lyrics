@@ -222,25 +222,23 @@ class QQLoginMqttSession:
         _, user_props, offset = _parse_properties(body, offset)
         event_type = user_props.get('type')
         payload = body[offset:]
-        if event_type == 'scanned':
+        payload_data = _json_payload(payload)
+        creds = _extract_login_credentials(payload_data)
+        if creds:
+            return {'state': 'cookies', 'music_id': creds[0], 'music_key': creds[1]}
+        event_name = str(event_type or '').strip()
+        event_key = event_name.lower()
+        if event_key in ('scanned', 'scan', 'qrcodescanned'):
             return {'state': 'scanned'}
-        if event_type == 'timeout':
+        if event_key in ('timeout', 'expired', 'expire'):
             return {'state': 'expired'}
-        if event_type == 'canceled':
+        if event_key in ('canceled', 'cancelled', 'cancel'):
             return {'state': 'canceled'}
-        if event_type == 'loginFailed':
+        if event_key in ('loginfailed', 'failed', 'fail'):
             return {'state': 'failed'}
-        if event_type == 'cookies':
-            try:
-                data = json.loads(payload.decode('utf-8'))
-                cookies = data.get('cookies') or {}
-                music_id = _cookie_value(cookies.get('qqmusic_uin'))
-                music_key = _cookie_value(cookies.get('qqmusic_key'))
-                if music_id and music_key:
-                    return {'state': 'cookies', 'music_id': int(music_id), 'music_key': music_key}
-            except (ValueError, TypeError, json.JSONDecodeError):
-                pass
-            return {'state': 'failed'}
+        if event_key == 'cookies':
+            print('[qq-login] cookies event missing usable token; fields=%s' % ','.join(_debug_field_names(payload_data)))
+            return {'state': 'scanned'}
         return None
 
     def poll(self):
@@ -299,6 +297,43 @@ def _first_value(flat, names):
         if tail in names and value:
             return value
     return ''
+
+def _json_payload(payload):
+    if not payload:
+        return {}
+    try:
+        return json.loads(payload.decode('utf-8'))
+    except (ValueError, TypeError, json.JSONDecodeError, UnicodeDecodeError):
+        return {}
+
+def _extract_login_credentials(data):
+    flat = _flatten(data)
+    music_id = _first_value(flat, {
+        'qqmusic_uin', 'musicid', 'music_id', 'musicId',
+        'uin', 'p_uin', 'wxuin', 'qq'
+    })
+    music_key = _first_value(flat, {
+        'qqmusic_key', 'qm_keyst', 'musickey', 'music_key', 'musicKey',
+        'token', 'key', 'authst'
+    })
+    music_id = _normalize_music_id(music_id)
+    music_key = str(music_key or '').strip()
+    if music_id and music_key:
+        return int(music_id), music_key
+    return None
+
+def _normalize_music_id(value):
+    value = str(value or '').strip()
+    if value.startswith('o') and value[1:].isdigit():
+        value = value[1:]
+    return value if value.isdigit() else ''
+
+def _debug_field_names(data):
+    try:
+        fields = sorted(_flatten(data).keys())
+    except Exception:
+        return []
+    return fields[:40]
 
 def _cookie_value(value):
     if isinstance(value, dict):

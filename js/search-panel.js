@@ -1185,10 +1185,11 @@ console.log('[search-panel.js] loaded');
       qqId: provider === 'qq' ? song.id : undefined,
       qqSongId: provider === 'qq' ? (song.qqSongId || '') : undefined,
       songmid: provider === 'qq' ? (song.songmid || song.id) : undefined,
+      mediaMid: provider === 'qq' ? (song.mediaMid || song.media_mid || '') : undefined,
       id: song.id,
       title: song.name,
       artist: song.artist,
-      audio: NetEase.streamUrl(song.id, 'standard', provider),
+      audio: NetEase.streamUrl(song.id, 'standard', provider, { mediaMid: song.mediaMid || song.media_mid || '' }),
       cover: NetEase.coverUrl(song.id, provider),
       duration: song.duration,
       vip: song.vip,
@@ -1216,7 +1217,7 @@ console.log('[search-panel.js] loaded');
 
   async function canPlayTrack(track) {
     try {
-      const info = await NetEase.songUrl(track.id, 'standard', track.source || 'netease');
+      const info = await NetEase.songUrl(track.id, 'standard', track.source || 'netease', false, { mediaMid: track.mediaMid });
       if (info && info.playable) {
         return { ok: true };
       }
