@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>沉浸式歌词 - 桌面音乐歌词播放器</title>
+  <meta name="description" content="沉浸式歌词是一款为 Windows 桌面设计的多音源歌词播放器，支持网易云、QQ 音乐、B 站导入、离线缓存和五段均衡器。">
+  <link rel="icon" href="./assets/app-icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <header class="site-header" data-glass>
+    <div class="header-left">
+      <a class="brand" href="#top" aria-label="沉浸式歌词首页">
+        <img src="./assets/app-icon.svg" alt="">
+        <span>沉浸式歌词</span>
+      </a>
+      <nav class="nav" aria-label="官网导航">
+        <a href="#sources">音源</a>
+        <a href="#experience">体验</a>
+        <a href="#privacy">隐私</a>
+        <a href="#download">下载</a>
+      </nav>
+    </div>
+    <a class="header-action" href="#download">获取 Windows 版</a>
+  </header>
+
+  <main id="top">
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="hero-copy">
+        <p class="eyebrow">Windows 桌面歌词播放器</p>
+        <h1 id="hero-title">沉浸式歌词</h1>
+        <p class="lede">把歌词、封面取色、音源搜索和离线缓存放进一个干净的桌面播放器里。它不抢戏，只让正在播放的歌更有存在感。</p>
+        <div class="hero-actions">
+          <a class="primary-action" href="#download">下载最新版本</a>
+          <a class="ghost-action" href="#gallery">查看界面</a>
+        </div>
+        <dl class="hero-facts" aria-label="产品能力概览">
+          <div>
+            <dt>3</dt>
+            <dd>音乐来源</dd>
+          </div>
+          <div>
+            <dt>5 段</dt>
+            <dd>均衡器</dd>
+          </div>
+          <div>
+            <dt>本地</dt>
+            <dd>离线缓存</dd>
+          </div>
+        </dl>
+      </div>
+
+      <div class="hero-stage" aria-label="沉浸式歌词界面预览">
+        <div class="orbital-line" aria-hidden="true"></div>
+        <figure class="product-shot shot-main">
+          <img src="./assets/preview-player-happy.png" alt="Happy Birthday to You 播放界面真实截图">
+        </figure>
+        <figure class="product-shot shot-search">
+          <img src="./assets/preview-login-real.png" alt="已模糊二维码的网易云登录真实截图">
+        </figure>
+        <figure class="product-shot shot-panel">
+          <img src="./assets/preview-eq-real.png" alt="均衡器与缓存界面真实截图">
+        </figure>
+      </div>
+    </section>
+
+    <section class="marquee-strip" aria-label="产品特性摘要">
+      <div class="marquee-track">
+        <div class="marquee-group">
+          <span>网易云 / QQ 音乐 / 哔哩哔哩导入</span>
+          <span>逐字歌词与翻译小字</span>
+          <span>封面驱动的丝滑背景</span>
+          <span>歌曲、歌词、封面离线缓存</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="section split" id="sources">
+      <div class="section-copy">
+        <p class="eyebrow">多来源，不混乱</p>
+        <h2>搜索和导入各走各的节奏。</h2>
+        <p>网易云和 QQ 音乐保留平台切换搜索，B 站则直接通过 BV 号或链接导入。结果不混排，添加前能看清来源，播放失败也会给出明确原因。</p>
+      </div>
+      <div class="source-board" aria-label="音源支持">
+        <article>
+          <span class="platform-icon icon-netease" aria-hidden="true">
+            <img src="./assets/logo-netease-cloud-music.svg" alt="">
+          </span>
+          <h3>网易云音乐</h3>
+          <p>扫码登录、搜索、歌词、播放 URL 预热和离线缓存。</p>
+        </article>
+        <article>
+          <span class="platform-icon icon-qq" aria-hidden="true">
+            <img src="./assets/logo-qq-music.svg" alt="">
+          </span>
+          <h3>QQ 音乐</h3>
+          <p>支持会员账号播放链路，逐字歌词、翻译和缓存一起优化。</p>
+        </article>
+        <article>
+          <span class="platform-icon icon-bilibili" aria-hidden="true">
+            <img src="./assets/logo-bilibili.svg" alt="">
+          </span>
+          <h3>哔哩哔哩</h3>
+          <p>从视频导入音频、字幕、封面，也可使用视频背景。</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="section experience" id="experience">
+      <div class="section-heading">
+        <p class="eyebrow">像播放器，也像舞台</p>
+        <h2>界面跟着音乐呼吸。</h2>
+      </div>
+      <div class="feature-grid">
+        <article>
+          <h3>封面取色背景</h3>
+          <p>从当前封面中提取更鲜明的颜色，压低脏黄、土灰和低饱和色的大面积占比。</p>
+          <span class="feature-symbol symbol-picker" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M14.7 4.3a3 3 0 0 1 4.2 4.2l-2 2 1.3 1.3-1.4 1.4-1.3-1.3-6.9 6.9H5.2v-3.4l6.9-6.9-1.3-1.3 1.4-1.4 1.3 1.3 1.2-1.2Zm-1.2 5.6-6.3 6.3v.6h.6l6.3-6.3-1.2-1.2-.4.4 1 .2Z"/></svg>
+          </span>
+        </article>
+        <article>
+          <h3>独立播放进度</h3>
+          <p>每首歌独立记住播放位置，切歌时避免进度乱跳，也减少重复等待。</p>
+          <span class="feature-symbol symbol-play" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M8 5.6v12.8L18.5 12 8 5.6Z"/></svg>
+          </span>
+        </article>
+        <article>
+          <h3>五段均衡器</h3>
+          <p>提供原声、暖声、人声、低频、通透等预设，细调时仍保持克制的玻璃质感。</p>
+          <span class="feature-symbol symbol-eq" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M5 4h2v16H5V4Zm6 5h2v11h-2V9Zm6-3h2v14h-2V6Z"/><path d="M4 10h4v2H4v-2Zm6 5h4v2h-4v-2Zm6-6h4v2h-4V9Z"/></svg>
+          </span>
+        </article>
+        <article>
+          <h3>离线缓存</h3>
+          <p>缓存歌曲时同步保存音频、歌词、封面等资源；删除歌曲时一并清理缓存。</p>
+          <span class="feature-symbol symbol-download" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M11 4h2v8.2l3.1-3.1 1.4 1.4L12 16l-5.5-5.5 1.4-1.4 3.1 3.1V4Z"/><path d="M5 18h14v2H5v-2Z"/></svg>
+          </span>
+        </article>
+      </div>
+    </section>
+
+    <section class="section gallery" id="gallery" aria-labelledby="gallery-title">
+      <div class="section-heading">
+        <p class="eyebrow">真实预览</p>
+        <h2 id="gallery-title">不用想象，直接看它工作时的样子。</h2>
+      </div>
+      <div class="gallery-layout">
+        <div class="gallery-tabs" role="tablist" aria-label="预览切换">
+          <button class="is-active" type="button" role="tab" aria-selected="true" data-shot="0">播放生日歌</button>
+          <button type="button" role="tab" aria-selected="false" data-shot="1">搜索与登录</button>
+          <button type="button" role="tab" aria-selected="false" data-shot="2">均衡器与缓存</button>
+        </div>
+        <figure class="gallery-frame">
+          <img id="gallery-image" src="./assets/preview-player-happy.png" alt="Happy Birthday to You 播放界面真实截图">
+          <figcaption id="gallery-caption">用生成式封面和居中歌词展示播放状态，不包含任何内置音频资源。</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section class="section privacy" id="privacy">
+      <div class="privacy-panel">
+        <p class="eyebrow">无内置版权资源</p>
+        <h2>公开版本保持干净。</h2>
+        <p>官网展示和无内置安装包不包含内置音乐、商业音频或专辑封面。用户自己的登录 Cookie、缓存媒体和导入文件留在本机，不会打进公开源码。</p>
+      </div>
+      <div class="privacy-cards" aria-label="隐私与资源说明">
+        <article>
+          <span aria-hidden="true">♪</span>
+          <strong>无内置音乐</strong>
+          <p>官网和公开安装包不携带商业音频。</p>
+        </article>
+        <article>
+          <span aria-hidden="true">●</span>
+          <strong>登录留本机</strong>
+          <p>平台 Cookie 只用于本地请求恢复。</p>
+        </article>
+        <article>
+          <span aria-hidden="true">↓</span>
+          <strong>缓存可清理</strong>
+          <p>删除歌曲时同步移除本地缓存。</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="download" id="download" aria-labelledby="download-title">
+      <div>
+        <p class="eyebrow">下载最新版本</p>
+        <h2 id="download-title">Windows 安装包已经准备好。</h2>
+        <p>当前页面只在本地测试。正式发布前，可以继续替换文案、截图或下载链接。</p>
+      </div>
+      <div class="download-box">
+        <span class="version">v1.0.7</span>
+        <a class="primary-action" href="../release-public-nomusic/ImmersiveLyrics-1.0.7-NoBuiltinMusic-Setup.exe" download>下载无内置音乐版</a>
+        <small>约 131 MB · NSIS 安装包</small>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <span>Copyright © 2026 沉浸式歌词. All rights reserved.</span>
+    <span>为本地桌面体验设计</span>
+  </footer>
+
+  <script src="./script.js"></script>
+</body>
+</html>
