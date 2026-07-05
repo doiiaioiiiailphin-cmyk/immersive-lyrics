@@ -20,8 +20,102 @@ const galleryImage = document.querySelector('#gallery-image');
 const galleryCaption = document.querySelector('#gallery-caption');
 const galleryTabs = Array.from(document.querySelectorAll('[data-shot]'));
 const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const mobileLayoutQuery = window.matchMedia('(max-width: 760px)');
+
+function setupMobileNavHost() {
+  const nav = document.querySelector('.nav');
+  const headerLeft = document.querySelector('.header-left');
+  const brand = document.querySelector('.brand');
+  if (!nav || !headerLeft || !brand) return;
+
+  const moveNav = () => {
+    if (mobileLayoutQuery.matches) {
+      if (nav.parentElement !== document.body) {
+        document.body.appendChild(nav);
+      }
+    } else if (nav.parentElement !== headerLeft) {
+      brand.insertAdjacentElement('afterend', nav);
+    }
+  };
+
+  moveNav();
+  if (mobileLayoutQuery.addEventListener) {
+    mobileLayoutQuery.addEventListener('change', moveNav);
+  } else {
+    mobileLayoutQuery.addListener(moveNav);
+  }
+}
+
+function setupPlatformClasses() {
+  const ua = navigator.userAgent || '';
+  const platform = navigator.platform || '';
+  const data = navigator.userAgentData;
+  const uaHint = ua.toLowerCase();
+  const fallbackHint = `${data && data.platform ? data.platform : ''} ${platform}`.toLowerCase();
+  const uaHasPlatform = /iphone|ipad|ipod|android|macintosh|mac os x|windows|linux|x11/.test(uaHint);
+  const isIphone = /iphone|ipod/.test(uaHint);
+  const isAndroid = /android/.test(uaHint);
+  const isIpad = /ipad/.test(uaHint) || (!isIphone && !isAndroid && /macintosh|mac os x/.test(uaHint) && /mobile/.test(uaHint) && navigator.maxTouchPoints > 1);
+  const isMac = !isIpad && !isAndroid && !isIphone && (/macintosh|mac os x/.test(uaHint) || (!uaHasPlatform && /mac/.test(fallbackHint)));
+  const isWindows = !isMac && !isIpad && !isIphone && !isAndroid && (/windows|win64|win32|wow64/.test(uaHint) || (!uaHasPlatform && /win/.test(fallbackHint)));
+  const isLinux = !isAndroid && !isWindows && !isMac && !isIpad && !isIphone && (/linux|x11/.test(uaHint) || (!uaHasPlatform && /linux/.test(fallbackHint)));
+  const isFirefox = /firefox|fxios/.test(uaHint);
+  const isSafari = /safari/.test(uaHint) && !/chrome|chromium|crios|edg\//.test(uaHint);
+  const isMobile = isIphone || isIpad || isAndroid || /mobile/.test(uaHint);
+
+  document.body.classList.toggle('ua-iphone', isIphone);
+  document.body.classList.toggle('ua-ipad', isIpad);
+  document.body.classList.toggle('ua-android', isAndroid);
+  document.body.classList.toggle('ua-mac', isMac);
+  document.body.classList.toggle('ua-windows', isWindows);
+  document.body.classList.toggle('ua-linux', isLinux);
+  document.body.classList.toggle('ua-firefox', isFirefox);
+  document.body.classList.toggle('ua-safari', isSafari);
+  document.body.classList.toggle('is-mobile-ua', isMobile);
+  document.body.classList.toggle('is-touch-ua', isMobile || navigator.maxTouchPoints > 0);
+  document.documentElement.style.setProperty('--vh', `${window.innerHeight * 0.01}px`);
+
+  const platformName =
+    isIphone ? 'iPhone' :
+    isIpad ? 'iPad' :
+    isAndroid ? 'Android' :
+    isMac ? 'macOS' :
+    isWindows ? 'Windows' :
+    isLinux ? (isFirefox ? 'Linux Firefox' : 'Linux') :
+    'Desktop';
+  document.body.dataset.platform = platformName;
+
+  function updateViewportVars() {
+    document.documentElement.style.setProperty('--vh', `${window.innerHeight * 0.01}px`);
+    if (window.visualViewport) {
+      const viewport = window.visualViewport;
+      const bottomInset = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
+      document.documentElement.style.setProperty('--visual-bottom-offset', `${bottomInset}px`);
+    } else {
+      document.documentElement.style.setProperty('--visual-bottom-offset', '0px');
+    }
+  }
+
+  updateViewportVars();
+  window.addEventListener('resize', updateViewportVars, { passive: true });
+  window.addEventListener('orientationchange', updateViewportVars, { passive: true });
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', updateViewportVars, { passive: true });
+    window.visualViewport.addEventListener('scroll', updateViewportVars, { passive: true });
+  }
+}
 
 function setupHeroMotion() {
+  const title = document.querySelector('#hero-title');
+  if (mobileLayoutQuery.matches) {
+    if (title) title.dataset.motionReady = 'mobile-static';
+    document.body.classList.add('motion-ready');
+    requestAnimationFrame(() => {
+      window.setTimeout(() => document.body.classList.add('hero-played', 'hero-motion-done'), 80);
+    });
+    return;
+  }
+
   if (reduceMotion) {
     document.body.classList.add('hero-played', 'hero-motion-done');
     return;
@@ -29,7 +123,6 @@ function setupHeroMotion() {
 
   document.body.classList.add('motion-ready');
 
-  const title = document.querySelector('#hero-title');
   if (title && !title.dataset.motionReady) {
     const text = title.textContent.trim();
     const directions = [
@@ -320,6 +413,8 @@ if (downloadLink && location.protocol === 'file:') {
   });
 }
 
+setupPlatformClasses();
+setupMobileNavHost();
 setupHeroMotion();
 setupAmbientPointer();
 setupCustomScrollbar();
