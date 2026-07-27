@@ -72,3 +72,9 @@ npm run pack:win
 ## 第三方说明
 
 接口兼容和实现参考见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+
+## 许可证
+
+本项目的自有源代码采用 [Apache License 2.0](LICENSE) 授权。再分发源码或二进制版本时，请保留许可证、版权及归属声明，并在修改过的文件中作出明确说明。
+
+第三方组件继续遵循各自许可证，详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。本许可证不授予任何音乐、歌词、封面、平台商标或其他第三方内容的使用权。

@@ -30,6 +30,8 @@
     "files": [
       "electron/**/*",
       "build/icon.*",
+      "LICENSE",
+      "NOTICE",
       "THIRD_PARTY_NOTICES.md"
     ],
     "extraResources": [
@@ -61,5 +63,6 @@
       "include": "build/installer.nsh",
       "deleteAppDataOnUninstall": false
     }
-  }
+  },
+  "license": "Apache-2.0"
 }
