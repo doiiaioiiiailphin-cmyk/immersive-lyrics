@@ -65,6 +65,7 @@ const NetEase = (function () {
       const err = new Error((data.error && data.error.message) || '请求失败');
       err.code = data.error && data.error.code;
       err.retryable = data.error && data.error.retryable;
+      err.actionUrl = data.error && data.error.action_url;
       err.httpStatus = resp.status;
       throw err;
     }
@@ -201,6 +202,22 @@ const NetEase = (function () {
     return request('/api/logout' + providerQuery(provider), { method: 'POST' });
   }
 
+  function sendSmsCaptcha(phone, countrycode, provider) {
+    return request('/api/login/sms/send' + providerQuery(provider), {
+      method: 'POST',
+      body: { phone: phone || '', countrycode: countrycode || '86' },
+      timeout: 25000,
+    });
+  }
+
+  function loginWithSms(phone, captcha, countrycode, provider) {
+    return request('/api/login/sms/verify' + providerQuery(provider), {
+      method: 'POST',
+      body: { phone: phone || '', captcha: captcha || '', countrycode: countrycode || '86' },
+      timeout: 30000,
+    });
+  }
+
   function createQR(provider, loginType) {
     let url = '/api/qr/create' + providerQuery(provider);
     if (provider && provider !== 'netease' && loginType) {
@@ -317,6 +334,8 @@ const NetEase = (function () {
   return {
     status,
     logout,
+    sendSmsCaptcha,
+    loginWithSms,
     createQR,
     checkQR,
     search,

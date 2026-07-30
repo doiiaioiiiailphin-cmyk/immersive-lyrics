@@ -560,7 +560,14 @@ function draw(time){
 }
 const frameTimes=[];
 let lastFrame=0;
+function isSilkPaused(){return !!window.__androidSilkPaused||!!window.__OFFLINE_RENDER_MODE}
 function loop(now){
+  if(isSilkPaused()){
+    window.__silkPaused=true;
+    requestAnimationFrame(loop);
+    return;
+  }
+  window.__silkPaused=false;
   const time=fixed!==null?Number(fixed):(now-started)/1000;
   draw(time);
   if(lastFrame){
@@ -610,6 +617,7 @@ function readAudit(time){
 window.__silkRenderer='webgl2-heightfield-normal-lighting';
 window.__silkShaderOK=true;
 window.__silkAudit=readAudit;
+window.__silkRenderFrame=time=>{draw(Number(time)||0);gl.finish()};
 window.__silkStats=()=>({
   renderer:window.__silkRenderer,
   shaderOK:window.__silkShaderOK,

@@ -41,6 +41,11 @@ from .offline_cache import local_audio_path as offline_local_audio_path
 from .offline_cache import local_media_path as offline_local_media_path
 from .offline_cache import delete_cached_media as offline_delete_cached_media
 from .offline_cache import OfflineCacheError
+from .video_renderer import (
+    cached_tracks as video_cached_tracks, start_render as video_start_render,
+    list_jobs as video_list_jobs, get_job as video_get_job, cancel_job as video_cancel_job,
+    output_file as video_output_file, VideoRenderError,
+)
 from .browser_cookie_reader import import_bilibili_cookies_from_browser
 from .cover_proxy import proxy_cover
 from .rate_limit import search_limiter
@@ -495,6 +500,63 @@ def api_cache_delete(handler, match):
         return
     send_json(handler, ok(result))
 
+
+@register('GET', '/api/render/tracks', 'api')
+def api_render_tracks(handler, match):
+    send_json(handler, ok({'tracks': video_cached_tracks()}))
+
+
+@register('GET', '/api/render/jobs', 'api')
+def api_render_jobs(handler, match):
+    send_json(handler, ok({'jobs': video_list_jobs()}))
+
+
+@register('POST', '/api/render/jobs', 'api')
+def api_render_start(handler, match):
+    body = _read_json_body(handler)
+    try:
+        result = video_start_render(
+            str(body.get('mediaId') or ''),
+            resolution=body.get('resolution') or '4k',
+            fps=body.get('fps') or 60,
+            test=bool(body.get('test')),
+            preview_seconds=body.get('previewSeconds'),
+            start=body.get('start') or 0,
+            end=body.get('end'),
+        )
+    except VideoRenderError as exc:
+        raise ApiError(exc.code, exc.message, exc.retryable)
+    send_json(handler, ok(result), status=202)
+
+
+@register('GET', '/api/render/jobs/*', 'api')
+def api_render_job(handler, match):
+    job_id = _route_id(match).strip('/').split('/', 1)[0]
+    try:
+        result = video_get_job(job_id)
+    except VideoRenderError as exc:
+        raise ApiError(exc.code, exc.message, exc.retryable)
+    send_json(handler, ok(result))
+
+
+@register('DELETE', '/api/render/jobs/*', 'api')
+def api_render_cancel(handler, match):
+    job_id = _route_id(match).strip('/').split('/', 1)[0]
+    try:
+        result = video_cancel_job(job_id)
+    except VideoRenderError as exc:
+        raise ApiError(exc.code, exc.message, exc.retryable)
+    send_json(handler, ok(result))
+
+
+@register('GET', '/api/render/output/*', 'media')
+def api_render_output(handler, match):
+    job_id = _route_id(match).strip('/').split('/', 1)[0]
+    try:
+        path, _name = video_output_file(job_id)
+    except VideoRenderError as exc:
+        raise ApiError(exc.code, exc.message, exc.retryable)
+    _send_local_media_file(handler, path, 'video/mp4', ranged=True)
 
 @register('GET', '/api/bilibili/resolve', 'api')
 def api_bilibili_resolve(handler, match):

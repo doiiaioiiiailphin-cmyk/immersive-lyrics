@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>歌曲视频渲染</title>
+<link rel="stylesheet" href="/render/render.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="/" aria-label="返回播放器"><img src="/assets/app-icon.svg" alt=""><span>沉浸式歌词</span></a>
+  <div class="page-title"><strong>歌曲视频渲染</strong><span>离线逐帧</span></div>
+  <a class="back" href="/">返回播放器</a>
+</header>
+<main>
+  <section class="library" aria-labelledby="library-title">
+    <div class="section-head"><div><h1 id="library-title">选择已缓存歌曲</h1><p>音频、歌词和封面全部从本机缓存读取。</p></div><button class="icon-btn" id="refresh" title="刷新缓存" aria-label="刷新缓存"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v6h-6"/></svg></button></div>
+    <div class="track-list" id="tracks" aria-live="polite"><div class="empty">正在读取缓存...</div></div>
+  </section>
+
+  <section class="settings" aria-labelledby="settings-title">
+    <div class="section-head"><div><h2 id="settings-title">输出参数</h2><p>画面按 1920 × 1080 的原始布局等比放大。</p></div></div>
+    <div class="setting-row"><span>分辨率</span><div class="segments" id="resolution"><button data-value="1080p">1080p</button><button data-value="2k">2K</button><button class="selected" data-value="4k">4K</button></div></div>
+    <div class="setting-row"><span>帧率</span><div class="segments" id="fps"><button data-value="24">24</button><button data-value="30">30</button><button class="selected" data-value="60">60 FPS</button></div></div>
+    <div class="setting-row time-setting">
+      <span>渲染区间</span>
+      <div class="time-range">
+        <label><small>开始</small><input id="start" type="text" inputmode="decimal" value="0:00" aria-label="开始时间，格式为分:秒"></label>
+        <i></i>
+        <label><small>结束</small><input id="end" type="text" inputmode="decimal" placeholder="歌曲结束" aria-label="结束时间，留空表示歌曲结束"></label>
+      </div>
+    </div>
+  </section>
+
+  <section class="render-status" aria-labelledby="status-title">
+    <div class="status-copy"><span class="eyebrow" id="status-title">当前任务</span><strong id="stage">尚未开始</strong><span id="detail">设置起止位置后，可渲染测试片段或完整区间。</span></div>
+    <div class="progress"><i id="progress-fill"></i></div><pre class="error-log hidden" id="error-log" aria-live="assertive"></pre>
+    <div class="actions"><button class="secondary" id="test">渲染 3 秒</button><button class="secondary" id="preview30">渲染 30 秒</button><button class="primary" id="render">渲染所选区间</button><button class="danger hidden" id="cancel">取消当前任务</button></div>
+  </section>
+
+  <section class="task-history" aria-labelledby="tasks-title">
+    <div class="section-head"><div><h2 id="tasks-title">渲染任务</h2><p>任务状态保存在本机，刷新页面或重启服务后仍可查看。</p></div><button class="icon-btn" id="refresh-jobs" title="刷新任务" aria-label="刷新任务"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v6h-6"/></svg></button></div>
+    <div class="job-list" id="jobs" aria-live="polite"><div class="jobs-empty">正在读取任务...</div></div>
+  </section>
+</main>
+<div class="toast" id="toast" role="status"></div>
+<script src="/render/render.js"></script>
+</body>
+</html>

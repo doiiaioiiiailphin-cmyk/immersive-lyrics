@@ -5,9 +5,7 @@ assets/*
 !assets/app-icon.svg
 
 # Build outputs
-build/*
-!build/
-!build/installer.nsh
+build/
 release*/
 dist/
 out/
@@ -17,6 +15,7 @@ node_modules/
 __pycache__/
 *.pyc
 .pytest_cache/
+.tmp/
 
 # Local Codex/app workspace folders
 .agents/
@@ -47,9 +46,6 @@ js/lyrics-timed*.js
 *.jpg
 *.jpeg
 *.png
-!docs/
-!docs/screenshots/
-!docs/screenshots/*.png
 *.webp
 
 # System
@@ -58,4 +54,9 @@ Thumbs.db
 
 # Accidental shell fragments
 1)*
-{round*
+[{]round*
+android/.gradle/
+android/local.properties
+android/signing.properties
+android/*.jks
+*.apk

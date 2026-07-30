@@ -84,6 +84,7 @@ def cache_track(provider, song_id, level='standard', title='', artist='', durati
         'level': level,
         'title': str(title or ''),
         'artist': str(artist or ''),
+        'duration': float(duration) if duration is not None else None,
         'createdAt': int(time.time()),
         'files': {
             'audio': {
@@ -106,6 +107,62 @@ def media_id_for(provider, song_id, level='standard'):
 def local_audio_path(media_id):
     return local_media_path(media_id, 'audio')
 
+
+def get_cached_track(media_id):
+    """Return public metadata for one validated cache entry."""
+    manifest = _read_manifest(media_id)
+    audio_path, audio_mime = local_media_path(media_id, 'audio')
+    payload = _public_payload(media_id, manifest)
+    payload.update({
+        'title': str(manifest.get('title') or 'Untitled'),
+        'artist': str(manifest.get('artist') or 'Unknown artist'),
+        'duration': manifest.get('duration'),
+        'audioMime': audio_mime,
+        '_audioPath': audio_path,
+    })
+    try:
+        cover_path, cover_mime = local_media_path(media_id, 'cover')
+        payload['_coverPath'] = cover_path
+        payload['coverMime'] = cover_mime
+    except OfflineCacheError:
+        payload['_coverPath'] = ''
+    return payload
+
+
+def ensure_cached_cover(media_id):
+    """Backfill a missing cover and return validated cached-track metadata."""
+    manifest = _read_manifest(media_id)
+    media_dir = _media_dir(media_id)
+    if not _has_manifest_file(media_dir, manifest, 'cover'):
+        provider = _safe_provider(manifest.get('provider'))
+        song_id = _safe_song_id(provider, manifest.get('songId'))
+        cover = _cache_cover(provider, song_id, media_dir)
+        if not cover:
+            raise OfflineCacheError('NOT_FOUND', '无法获取这首歌的真实封面，请重新缓存歌曲后再渲染', True)
+        manifest.setdefault('files', {})['cover'] = cover
+        _write_manifest(media_dir, manifest)
+    result = get_cached_track(media_id)
+    if not result.get('_coverPath'):
+        raise OfflineCacheError('NOT_FOUND', '缓存封面文件不存在，请重新缓存歌曲后再渲染', False)
+    return result
+
+def list_cached_tracks():
+    """List complete cache entries without exposing local filesystem paths."""
+    os.makedirs(CACHE_ROOT, exist_ok=True)
+    tracks = []
+    for name in os.listdir(CACHE_ROOT):
+        if not re.match(r'^[0-9a-f]{32}$', name):
+            continue
+        try:
+            item = get_cached_track(name)
+        except OfflineCacheError:
+            continue
+        for key in tuple(item.keys()):
+            if key.startswith('_'):
+                item.pop(key, None)
+        tracks.append(item)
+    tracks.sort(key=lambda item: str(item.get('title') or '').casefold())
+    return tracks
 
 def local_media_path(media_id, kind):
     kind = str(kind or '').strip().lower()

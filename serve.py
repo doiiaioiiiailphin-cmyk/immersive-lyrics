@@ -51,6 +51,8 @@ STATIC_WHITELIST = [
     re.compile(r'^/js/.+$'),
     re.compile(r'^/css/.+$'),
     re.compile(r'^/assets/.+$'),
+    re.compile(r'^/render/?$'),
+    re.compile(r'^/render/.+$'),
 ]
 
 CSP_HEADER = ("default-src 'self'; "
@@ -274,6 +276,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         # 映射到文件系统
         if decoded == '/':
             decoded = '/index.html'
+        elif decoded == '/render/' or decoded == '/render':
+            decoded = '/render/index.html'
         fs_path = os.path.normpath(os.path.join(WEB_ROOT, decoded.lstrip('/')))
         # 确保在 WEB_ROOT 内
         if not fs_path.startswith(WEB_ROOT + os.sep) and fs_path != WEB_ROOT:

@@ -7,6 +7,7 @@ console.log('[search-panel.js] loaded');
 (function () {
   let searchAbort = null; // AbortController，取消旧搜索
   let qrPollTimer = null;
+  let smsCountdownTimer = null;
   let currentQuery = '';
   let currentPage = 0;
   let hasMore = false;
@@ -17,6 +18,9 @@ console.log('[search-panel.js] loaded');
   const BILI_SUBTITLE_LIMIT = 1024 * 1024;
   const BILI_COVER_LIMIT = 5 * 1024 * 1024;
   const SEARCH_PROVIDER_KEY = 'searchLastProvider';
+  const SMS_LOGIN_STATE_KEY = 'androidSmsLoginStatesV1';
+  const SMS_LOGIN_STATE_TTL = 10 * 60 * 1000;
+  const ANDROID_SMS_LOGIN = !!window.__ANDROID_SMS_LOGIN__;
   const PROVIDERS = {
     netease: { label: '网易云', loginTitle: '登录网易云音乐', loginHint: '请使用网易云音乐 App 扫码登录', cacheKey: 'neteaseLoginState' },
     qq: { label: 'QQ', loginTitle: '登录 QQ 音乐', loginHint: '请使用 QQ 音乐 App 扫码登录', cacheKey: 'qqLoginState' },
@@ -28,6 +32,10 @@ console.log('[search-panel.js] loaded');
     netease: { loggedIn: false, nickname: null, trustedUntil: 0 },
     qq: { loggedIn: false, nickname: null, trustedUntil: 0 },
     bilibili: { loggedIn: false, nickname: null, trustedUntil: 0 },
+  };
+  const smsLoginStates = {
+    netease: { countrycode: '86', phone: '', captcha: '', status: '', retryUntil: 0, sent: false, pendingVerification: null, busy: false },
+    qq: { countrycode: '86', phone: '', captcha: '', status: '', retryUntil: 0, sent: false, pendingVerification: null, busy: false },
   };
 
   function loadSavedProvider() {
@@ -90,6 +98,19 @@ console.log('[search-panel.js] loaded');
             <p class="qr-status" id="qr-status">正在生成二维码...</p>
             <button class="qr-refresh" id="qr-refresh">刷新二维码</button>
           </div>
+          <div class="login-sms-section login-hidden" id="login-sms-section">
+            <div class="login-sms-row">
+              <input type="tel" id="login-sms-country" value="+86" inputmode="numeric" aria-label="国家或地区代码">
+              <input type="tel" id="login-sms-phone" inputmode="tel" autocomplete="tel" placeholder="手机号" aria-label="手机号">
+            </div>
+            <div class="login-sms-row login-sms-code-row">
+              <input type="text" id="login-sms-code" inputmode="numeric" autocomplete="one-time-code" maxlength="8" placeholder="短信验证码" aria-label="短信验证码">
+              <button type="button" id="login-sms-send">获取验证码</button>
+            </div>
+            <button type="button" class="login-sms-submit" id="login-sms-submit">登录</button>
+            <p class="login-sms-status" id="login-sms-status" role="status" aria-live="polite"></p>
+            <button type="button" class="login-sms-verify login-hidden" id="login-sms-verify">完成人机验证</button>
+          </div>
           <div class="login-cookie-section login-hidden" id="login-cookie-section">
             <textarea id="login-bili-cookie-text" rows="5" placeholder="粘贴 bilibili.com Cookie，通常包含 SESSDATA、bili_jct 等字段"></textarea>
             <p class="qr-status" id="login-bili-cookie-status">Cookie 会先验证有效性，通过后才保存到本地 HttpOnly Cookie。</p>
@@ -144,6 +165,15 @@ console.log('[search-panel.js] loaded');
     document.getElementById('login-close').onclick = () => hideLogin();
     document.getElementById('qr-refresh').onclick = () => startLogin();
     document.getElementById('login-logout').onclick = () => logoutActiveProvider({ stayInLogin: true });
+    document.getElementById('login-sms-send').onclick = () => sendAndroidSmsCaptcha();
+    document.getElementById('login-sms-submit').onclick = () => submitAndroidSmsLogin();
+    document.getElementById('login-sms-verify').onclick = () => openAndroidSmsVerification();
+    document.getElementById('login-sms-code').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); submitAndroidSmsLogin(); }
+    });
+    ['login-sms-country', 'login-sms-phone', 'login-sms-code'].forEach((id) => {
+      document.getElementById(id)?.addEventListener('input', () => captureSmsLoginState(activeProvider));
+    });
     document.getElementById('login-bili-cookie-verify').onclick = () => importBiliLoginCookie();
     document.getElementById('login-bili-cookie-clear').onclick = () => logoutBiliFromLogin();
     document.getElementById('login-panel').onclick = (e) => {
@@ -288,6 +318,7 @@ console.log('[search-panel.js] loaded');
 
   function setActiveProvider(provider) {
     if (!PROVIDERS[provider] || provider === activeProvider) return;
+    captureSmsLoginState(activeProvider);
     activeProvider = provider;
     saveActiveProvider();
     currentQuery = '';
@@ -321,6 +352,7 @@ console.log('[search-panel.js] loaded');
     const meta = PROVIDERS[activeProvider] || PROVIDERS.netease;
     const state = providerState(activeProvider);
     const isBili = activeProvider === 'bilibili';
+    const isAndroidSms = ANDROID_SMS_LOGIN && (activeProvider === 'netease' || activeProvider === 'qq') && !state.loggedIn;
     document.querySelectorAll('[data-provider-switch] button').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.provider === activeProvider);
     });
@@ -336,24 +368,32 @@ console.log('[search-panel.js] loaded');
     const title = document.getElementById('login-title');
     const hint = document.getElementById('login-hint');
     if (title) title.textContent = state.loggedIn ? (meta.label + '已登录') : meta.loginTitle;
-    if (hint) hint.textContent = state.loggedIn ? '当前平台已经授权，可直接搜索和播放。' : meta.loginHint;
+    if (hint) {
+      const smsPlatform = activeProvider === 'qq' ? 'QQ音乐' : '网易云音乐';
+      hint.textContent = state.loggedIn
+        ? '当前平台已经授权，可直接搜索和播放。'
+        : (isAndroidSms ? ('使用' + smsPlatform + '绑定的手机号和短信验证码登录') : meta.loginHint);
+    }
     const typeSwitch = document.getElementById('login-type-switch');
     if (typeSwitch) {
-      typeSwitch.style.display = activeProvider === 'qq' ? 'flex' : 'none';
+      typeSwitch.style.display = activeProvider === 'qq' && !isAndroidSms ? 'flex' : 'none';
       typeSwitch.querySelectorAll('button').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.loginType === activeLoginType);
       });
     }
     const qrSection = document.getElementById('login-qr-section');
+    const smsSection = document.getElementById('login-sms-section');
     const cookieSection = document.getElementById('login-cookie-section');
     const session = document.getElementById('login-session');
     const sessionTitle = document.getElementById('login-session-title');
     const sessionName = document.getElementById('login-session-name');
-    if (qrSection) qrSection.classList.toggle('login-hidden', state.loggedIn || isBili);
+    if (qrSection) qrSection.classList.toggle('login-hidden', state.loggedIn || isBili || isAndroidSms);
+    if (smsSection) smsSection.classList.toggle('login-hidden', !isAndroidSms);
     if (cookieSection) cookieSection.classList.toggle('login-hidden', !isBili || state.loggedIn);
     if (session) session.classList.toggle('login-hidden', !state.loggedIn);
     if (sessionTitle) sessionTitle.textContent = meta.label + '已登录';
     if (sessionName) sessionName.textContent = state.nickname || '授权状态已保存';
+    if (isAndroidSms) restoreSmsLoginState(activeProvider);
   }
 
   function loadCachedLoginState(provider) {
@@ -529,6 +569,11 @@ console.log('[search-panel.js] loaded');
     }
     if (isLoginTrusted(activeProvider)) {
       stopQRLogin();
+      return;
+    }
+    if (ANDROID_SMS_LOGIN && (activeProvider === 'netease' || activeProvider === 'qq')) {
+      stopQRLogin();
+      setTimeout(() => document.getElementById('login-sms-phone')?.focus(), 0);
       return;
     }
     startLogin();
@@ -867,6 +912,352 @@ console.log('[search-panel.js] loaded');
     return await window.BiliAssets.putBlob(key, file, { name: file.name, type: file.type || '' });
   }
 
+  // ===== Android 短信登录 =====
+  function smsLoginState(provider) {
+    return smsLoginStates[provider || activeProvider] || smsLoginStates.netease;
+  }
+
+  function persistSmsLoginStates() {
+    if (!ANDROID_SMS_LOGIN) return;
+    try {
+      const providers = {};
+      Object.keys(smsLoginStates).forEach((provider) => {
+        const state = smsLoginStates[provider];
+        const pending = state.pendingVerification;
+        providers[provider] = {
+          countrycode: state.countrycode || '86',
+          phone: state.phone || '',
+          captcha: state.captcha || '',
+          status: state.status || '',
+          retryUntil: Number(state.retryUntil) || 0,
+          sent: !!state.sent,
+          pendingVerification: pending ? {
+            provider,
+            actionUrl: String(pending.actionUrl || ''),
+            kind: pending.kind === 'login' ? 'login' : 'send',
+            launchedAt: Number(pending.launchedAt) || 0,
+            resumeAttemptedAt: Number(pending.resumeAttemptedAt) || 0,
+          } : null,
+        };
+      });
+      localStorage.setItem(SMS_LOGIN_STATE_KEY, JSON.stringify({ savedAt: Date.now(), providers }));
+    } catch (error) {
+      console.warn('[login] 保存短信登录进度失败', error);
+    }
+  }
+
+  function loadPersistedSmsLoginStates() {
+    if (!ANDROID_SMS_LOGIN) return;
+    try {
+      const raw = localStorage.getItem(SMS_LOGIN_STATE_KEY);
+      if (!raw) return;
+      const saved = JSON.parse(raw);
+      if (!saved || Date.now() - Number(saved.savedAt || 0) > SMS_LOGIN_STATE_TTL) {
+        localStorage.removeItem(SMS_LOGIN_STATE_KEY);
+        return;
+      }
+      Object.keys(smsLoginStates).forEach((provider) => {
+        const source = saved.providers && saved.providers[provider];
+        if (!source) return;
+        const state = smsLoginStates[provider];
+        state.countrycode = String(source.countrycode || '86').replace(/\D/g, '') || '86';
+        state.phone = String(source.phone || '').replace(/\D/g, '');
+        state.captcha = String(source.captcha || '').replace(/\D/g, '');
+        state.status = String(source.status || '');
+        state.retryUntil = Number(source.retryUntil) || 0;
+        state.sent = !!source.sent;
+        state.busy = false;
+        const pending = source.pendingVerification;
+        state.pendingVerification = pending && pending.actionUrl ? {
+          provider,
+          actionUrl: String(pending.actionUrl),
+          kind: pending.kind === 'login' ? 'login' : 'send',
+          launchedAt: Number(pending.launchedAt) || 0,
+          resumeAttemptedAt: Number(pending.resumeAttemptedAt) || 0,
+        } : null;
+      });
+    } catch (error) {
+      localStorage.removeItem(SMS_LOGIN_STATE_KEY);
+      console.warn('[login] 恢复短信登录进度失败', error);
+    }
+  }
+
+  function captureSmsLoginState(provider) {
+    provider = provider || activeProvider;
+    if (!smsLoginStates[provider] || provider !== activeProvider) return;
+    const state = smsLoginState(provider);
+    const countryInput = document.getElementById('login-sms-country');
+    const phoneInput = document.getElementById('login-sms-phone');
+    const codeInput = document.getElementById('login-sms-code');
+    state.countrycode = String(countryInput?.value || '86').replace(/\D/g, '') || '86';
+    state.phone = String(phoneInput?.value || '').replace(/\D/g, '');
+    state.captcha = String(codeInput?.value || '').replace(/\D/g, '');
+    persistSmsLoginStates();
+  }
+
+  function restoreSmsLoginState(provider) {
+    provider = provider || activeProvider;
+    if (!smsLoginStates[provider] || provider !== activeProvider) return;
+    const state = smsLoginState(provider);
+    const countryInput = document.getElementById('login-sms-country');
+    const phoneInput = document.getElementById('login-sms-phone');
+    const codeInput = document.getElementById('login-sms-code');
+    const status = document.getElementById('login-sms-status');
+    const verifyButton = document.getElementById('login-sms-verify');
+    if (countryInput) countryInput.value = '+' + (state.countrycode || '86');
+    if (phoneInput) phoneInput.value = state.phone || '';
+    if (codeInput) codeInput.value = state.captcha || '';
+    if (status) status.textContent = state.status || '';
+    if (verifyButton) verifyButton.classList.toggle('login-hidden', !state.pendingVerification);
+    renderSmsCountdown(provider);
+  }
+
+  function smsLoginFields(provider) {
+    provider = provider || activeProvider;
+    if (provider === activeProvider) captureSmsLoginState(provider);
+    const state = smsLoginState(provider);
+    return {
+      countrycode: state.countrycode || '86',
+      phone: state.phone || '',
+      captcha: state.captcha || '',
+    };
+  }
+
+  function setSmsStatus(message, provider) {
+    provider = provider || activeProvider;
+    const state = smsLoginState(provider);
+    state.status = message || '';
+    persistSmsLoginStates();
+    if (provider !== activeProvider) return;
+    const status = document.getElementById('login-sms-status');
+    if (status) status.textContent = state.status;
+  }
+
+  function clearSmsVerification(provider) {
+    provider = provider || activeProvider;
+    const state = smsLoginState(provider);
+    state.pendingVerification = null;
+    persistSmsLoginStates();
+    if (provider !== activeProvider) return;
+    const button = document.getElementById('login-sms-verify');
+    if (button) button.classList.add('login-hidden');
+  }
+
+  function showSmsVerification(error, retry, provider, kind) {
+    provider = provider || activeProvider;
+    const actionUrl = String(error && error.actionUrl || '');
+    if (!actionUrl) return false;
+    const state = smsLoginState(provider);
+    state.pendingVerification = {
+      provider,
+      actionUrl,
+      kind: error && error.code === 'QQ_ACCOUNT_BIND_REQUIRED'
+        ? 'bind'
+        : (kind === 'login' ? 'login' : 'send'),
+      launchedAt: 0,
+      resumeAttemptedAt: 0,
+    };
+    persistSmsLoginStates();
+    if (provider === activeProvider) {
+      const button = document.getElementById('login-sms-verify');
+      if (button) button.classList.remove('login-hidden');
+    }
+    setSmsStatus(error && error.code === 'QQ_ACCOUNT_BIND_REQUIRED' ? error.message : ((error && error.message ? error.message + '：' : '') + '请先完成人机验证'), provider);
+    return true;
+  }
+
+  function openAndroidSmsVerification() {
+    const pending = smsLoginState(activeProvider).pendingVerification;
+    if (!pending || pending.provider !== activeProvider) return;
+    if (!window.AndroidApiNative || typeof window.AndroidApiNative.openVerification !== 'function') {
+      setSmsStatus('当前版本无法打开安全验证页', activeProvider);
+      return;
+    }
+    pending.launchedAt = Date.now();
+    pending.resumeAttemptedAt = 0;
+    persistSmsLoginStates();
+    setSmsStatus(
+      pending.kind === 'bind'
+        ? '请在官方 QQ 音乐中选择账号并完成手机号绑定'
+        : pending.provider === 'netease'
+        ? '请在网易云音乐 App 完成验证，再返回本应用重试'
+        : '请完成验证，然后点“完成后返回”',
+      pending.provider
+    );
+    window.AndroidApiNative.openVerification(pending.provider, pending.actionUrl);
+  }
+
+  function retrySmsVerification(provider, pending) {
+    if (!pending || !smsLoginStates[provider]) return;
+    if (activeProvider !== provider) {
+      captureSmsLoginState(activeProvider);
+      activeProvider = provider;
+      saveActiveProvider();
+      updateProviderUI();
+    }
+    if (pending.kind === 'send' || pending.kind === 'bind') {
+      smsLoginState(provider).captcha = '';
+      const codeInput = document.getElementById('login-sms-code');
+      if (codeInput) codeInput.value = '';
+      setSmsStatus('安全验证已完成，正在重新发送一条新的短信验证码...', provider);
+      setTimeout(() => sendAndroidSmsCaptcha({ afterVerification: true }), 700);
+    } else {
+      setSmsStatus('安全验证已完成，正在重新提交登录...', provider);
+      setTimeout(() => submitAndroidSmsLogin({ afterVerification: true }), 500);
+    }
+  }
+
+  window.__androidVerificationClosed = function (provider) {
+    provider = provider || activeProvider;
+    const state = smsLoginState(provider);
+    const pending = state.pendingVerification;
+    if (!pending || pending.provider !== provider) return;
+    clearSmsVerification(provider);
+    retrySmsVerification(provider, pending);
+  };
+
+  function resumePendingSmsVerification() {
+    if (!ANDROID_SMS_LOGIN) return;
+    const provider = Object.keys(smsLoginStates).find((key) => {
+      const pending = smsLoginStates[key].pendingVerification;
+      if (!pending || !pending.launchedAt) return false;
+      return Date.now() - pending.launchedAt <= SMS_LOGIN_STATE_TTL &&
+        (!pending.resumeAttemptedAt || Date.now() - pending.resumeAttemptedAt > 15_000);
+    });
+    if (!provider) return;
+    const state = smsLoginState(provider);
+    const pending = { ...state.pendingVerification };
+    state.pendingVerification.resumeAttemptedAt = Date.now();
+    activeProvider = provider;
+    saveActiveProvider();
+    ensureUI();
+    updateProviderUI();
+    const overlay = document.getElementById('search-overlay');
+    if (overlay) {
+      overlay.classList.add('login-mode');
+      revealOverlay(overlay);
+    }
+    showLogin();
+    clearSmsVerification(provider);
+    setSmsStatus('已恢复验证前的登录页面，正在继续...', provider);
+    persistSmsLoginStates();
+    retrySmsVerification(provider, pending);
+  }
+
+  function renderSmsCountdown(provider) {
+    provider = provider || activeProvider;
+    const state = smsLoginState(provider);
+    const remaining = Math.max(0, Math.ceil((Number(state.retryUntil) - Date.now()) / 1000));
+    if (!remaining && state.retryUntil) {
+      state.retryUntil = 0;
+      persistSmsLoginStates();
+    }
+    if (provider !== activeProvider) return;
+    const button = document.getElementById('login-sms-send');
+    if (!button) return;
+    button.disabled = !!state.busy || remaining > 0;
+    button.textContent = remaining > 0 ? (remaining + ' 秒') : (state.sent ? '重新获取' : '获取验证码');
+  }
+
+  function ensureSmsCountdownTimer() {
+    if (smsCountdownTimer) return;
+    smsCountdownTimer = setInterval(() => {
+      renderSmsCountdown('netease');
+      renderSmsCountdown('qq');
+      if (Object.values(smsLoginStates).every(state => !state.retryUntil || state.retryUntil <= Date.now())) {
+        clearInterval(smsCountdownTimer);
+        smsCountdownTimer = null;
+        renderSmsCountdown(activeProvider);
+      }
+    }, 250);
+  }
+
+  function startSmsCountdown(seconds, provider) {
+    provider = provider || activeProvider;
+    const state = smsLoginState(provider);
+    state.retryUntil = Date.now() + Math.max(1, Number(seconds) || 60) * 1000;
+    persistSmsLoginStates();
+    renderSmsCountdown(provider);
+    ensureSmsCountdownTimer();
+  }
+
+  async function sendAndroidSmsCaptcha(options) {
+    options = options || {};
+    const provider = activeProvider;
+    if (!ANDROID_SMS_LOGIN || (provider !== 'netease' && provider !== 'qq')) return;
+    const state = smsLoginState(provider);
+    const fields = smsLoginFields(provider);
+    if (fields.phone.length < 5) { setSmsStatus('请输入正确的手机号', provider); return; }
+    if (state.retryUntil > Date.now() && !options.afterVerification) return;
+    state.busy = true;
+    state.captcha = '';
+    if (provider === activeProvider) {
+      const codeInput = document.getElementById('login-sms-code');
+      if (codeInput) codeInput.value = '';
+    }
+    clearSmsVerification(provider);
+    renderSmsCountdown(provider);
+    setSmsStatus(options.afterVerification ? '正在重新发送新的验证码...' : '正在发送验证码...', provider);
+    try {
+      const data = await NetEase.sendSmsCaptcha(fields.phone, fields.countrycode, provider);
+      state.sent = true;
+      persistSmsLoginStates();
+      setSmsStatus(
+        options.afterVerification
+          ? '人机验证已通过，新的验证码已发送，请输入最新短信中的验证码'
+          : (data.message || ('验证码已发送至 ' + (data.phone || fields.phone))),
+        provider
+      );
+      startSmsCountdown(data.retry_after || 60, provider);
+      if (provider === activeProvider) document.getElementById('login-sms-code')?.focus();
+    } catch (error) {
+      if (showSmsVerification(error, () => sendAndroidSmsCaptcha({ afterVerification: true }), provider, 'send')) return;
+      const message = error.message || String(error);
+      setSmsStatus('发送失败：' + message, provider);
+    } finally {
+      state.busy = false;
+      renderSmsCountdown(provider);
+    }
+  }
+
+  async function submitAndroidSmsLogin(options) {
+    options = options || {};
+    const provider = activeProvider;
+    if (!ANDROID_SMS_LOGIN || (provider !== 'netease' && provider !== 'qq')) return;
+    const fields = smsLoginFields(provider);
+    const button = document.getElementById('login-sms-submit');
+    if (button && button.disabled) return;
+    if (fields.phone.length < 5) { setSmsStatus('请输入正确的手机号', provider); return; }
+    if (fields.captcha.length < 4) { setSmsStatus('请输入短信验证码', provider); return; }
+    if (button && provider === activeProvider) button.disabled = true;
+    clearSmsVerification(provider);
+    setSmsStatus(options.afterVerification ? '正在重新校验登录...' : '正在登录并校验会话...', provider);
+    try {
+      const data = await NetEase.loginWithSms(fields.phone, fields.captcha, fields.countrycode, provider);
+      const loginState = providerState(provider);
+      loginState.loggedIn = !!data.logged_in;
+      loginState.nickname = data.nickname || null;
+      trustLoginFor(10 * 60 * 1000, provider);
+      saveCachedLoginState(provider);
+      state.captcha = '';
+      state.pendingVerification = null;
+      state.retryUntil = 0;
+      state.status = '登录成功';
+      persistSmsLoginStates();
+      if (provider === activeProvider) {
+        updateSearchButton();
+        updateProviderUI();
+        setSmsStatus('登录成功', provider);
+        setTimeout(() => hideLogin(), 500);
+      }
+    } catch (error) {
+      if (showSmsVerification(error, () => submitAndroidSmsLogin({ afterVerification: true }), provider, 'login')) return;
+      const message = error.message || String(error);
+      setSmsStatus('登录失败：' + message, provider);
+    } finally {
+      if (button && provider === activeProvider) button.disabled = false;
+    }
+  }
   // ===== 二维码登录 =====
   let currentUnikey = null;
   let qrGeneration = 0; // P0-62: 防多次刷新二维码响应乱序
@@ -874,6 +1265,12 @@ console.log('[search-panel.js] loaded');
   async function startLogin() {
     const myGen = ++qrGeneration; // 作废旧 generation 的回调
     const provider = activeProvider;
+    if (ANDROID_SMS_LOGIN && (provider === 'netease' || provider === 'qq')) {
+      stopQRLogin();
+      updateProviderUI();
+      setTimeout(() => document.getElementById('login-sms-phone')?.focus(), 0);
+      return;
+    }
     if (provider === 'bilibili') {
       stopQRLogin();
       updateProviderUI();
@@ -1142,7 +1539,7 @@ console.log('[search-panel.js] loaded');
       const cover = document.createElement('img');
       cover.className = 'search-cover';
       const provider = song.source || activeProvider;
-      cover.src = NetEase.coverUrl(song.id, provider);
+      cover.src = song.cover || NetEase.coverUrl(song.id, provider);
       cover.alt = '';
       cover.onerror = () => { cover.style.visibility = 'hidden'; };
       item.appendChild(cover);
@@ -1190,7 +1587,7 @@ console.log('[search-panel.js] loaded');
       title: song.name,
       artist: song.artist,
       audio: NetEase.streamUrl(song.id, 'standard', provider, { mediaMid: song.mediaMid || song.media_mid || '' }),
-      cover: NetEase.coverUrl(song.id, provider),
+      cover: song.cover || NetEase.coverUrl(song.id, provider),
       duration: song.duration,
       vip: song.vip,
     };
@@ -1247,7 +1644,15 @@ console.log('[search-panel.js] loaded');
     toastTimer = setTimeout(() => toast.classList.remove('show'), 2200);
   }
 
+  window.SearchPanel = {
+    show: showSearch,
+    hide: hideSearch,
+    toggle: function () { if (isSearchShown()) hideSearch(); else showSearch(); },
+    isShown: isSearchShown
+  };
+
   function init() {
+    loadPersistedSmsLoginStates();
     loadCachedLoginState('netease');
     loadCachedLoginState('qq');
     loadCachedLoginState('bilibili');
@@ -1274,6 +1679,7 @@ console.log('[search-panel.js] loaded');
       checkStatus({ allowDemote: true, provider: 'qq' });
       checkStatus({ allowDemote: true, provider: 'bilibili' });
     }, 500);
+    setTimeout(resumePendingSmsVerification, 250);
   }
 
   // DOM ready 后初始化
