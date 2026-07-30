@@ -858,14 +858,23 @@ function ensurePlaylistRailItemVisible(index,smooth){
   const rail=ensurePlaylistRail();
   const dots=rail&&rail.querySelector('.playlist-rail-dots');
   const item=dots&&dots.querySelector('.playlist-rail-item[data-index="'+index+'"]');
-  if(!dots||!item||dots.clientWidth<=0)return;
+  if(!dots||!item)return;
   const pad=5;
-  const left=item.offsetLeft;
-  const right=left+item.offsetWidth;
-  let target=dots.scrollLeft;
-  if(left<dots.scrollLeft+pad)target=Math.max(0,left-pad);
-  else if(right>dots.scrollLeft+dots.clientWidth-pad)target=right-dots.clientWidth+pad;
-  if(Math.abs(target-dots.scrollLeft)>1)dots.scrollTo({left:target,behavior:smooth?'smooth':'auto'});
+  if(IS_ANDROID_APP){
+    if(dots.clientWidth<=0)return;
+    const start=item.offsetLeft,end=start+item.offsetWidth;
+    let target=dots.scrollLeft;
+    if(start<dots.scrollLeft+pad)target=Math.max(0,start-pad);
+    else if(end>dots.scrollLeft+dots.clientWidth-pad)target=end-dots.clientWidth+pad;
+    if(Math.abs(target-dots.scrollLeft)>1)dots.scrollTo({left:target,behavior:smooth?'smooth':'auto'});
+  }else{
+    if(dots.clientHeight<=0)return;
+    const start=item.offsetTop,end=start+item.offsetHeight;
+    let target=dots.scrollTop;
+    if(start<dots.scrollTop+pad)target=Math.max(0,start-pad);
+    else if(end>dots.scrollTop+dots.clientHeight-pad)target=end-dots.clientHeight+pad;
+    if(Math.abs(target-dots.scrollTop)>1)dots.scrollTo({top:target,behavior:smooth?'smooth':'auto'});
+  }
 }
 function setPlaylistRailProgress(value){
   const rail=ensurePlaylistRail();
@@ -880,15 +889,16 @@ function setPlaylistRailProgress(value){
     const weight=Math.max(0,1-dist);
     const soft=Math.max(0,1-dist/1.8);
     item.classList.toggle('active',index===nearest&&Math.abs(index-playlistRailProgress)<.5);
-    item.style.width=(18+6*weight)+'px';
-    item.style.height='30px';
-    item.style.flexBasis=(18+6*weight)+'px';
-    item.style.transform='translateX('+((index-playlistRailProgress)*soft*1.5)+'px)';
+    const itemExtent=18+6*weight;
+    item.style.width=(IS_ANDROID_APP?itemExtent:30)+'px';
+    item.style.height=(IS_ANDROID_APP?30:itemExtent)+'px';
+    item.style.flexBasis=itemExtent+'px';
+    item.style.transform=(IS_ANDROID_APP?'translateX(':'translateY(')+((index-playlistRailProgress)*soft*1.5)+'px)';
     item.style.opacity=String(.72+.28*soft);
     if(dot){
       dot.setAttribute('aria-selected',index===nearest?'true':'false');
-      dot.style.width=(10+12*weight)+'px';
-      dot.style.height='10px';
+      dot.style.width=(IS_ANDROID_APP?10+12*weight:10)+'px';
+      dot.style.height=(IS_ANDROID_APP?10:10+12*weight)+'px';
       dot.style.borderRadius=weight>.02?'999px':'50%';
       dot.style.background='rgba(255,255,255,'+(.48+.52*weight).toFixed(3)+')';
       dot.style.boxShadow=weight>.05?'0 0 '+(8+14*weight).toFixed(1)+'px rgba(255,255,255,'+(.12+.28*weight).toFixed(3)+'),0 0 0 1px rgba(255,255,255,.16)':'0 0 0 1px rgba(255,255,255,.08)';
@@ -976,8 +986,12 @@ function showPlaylistTooltip(id,item){
   const pickerRect=songPicker.getBoundingClientRect();
   tip.classList.add('show');
   const tipRect=tip.getBoundingClientRect();
-  const left=Math.max(18,Math.min(window.innerWidth-tipRect.width-18,rect.left+rect.width/2-tipRect.width/2));
-  const top=Math.max(18,Math.min(window.innerHeight-tipRect.height-18,rect.bottom+10));
+  const left=IS_ANDROID_APP
+    ?Math.max(18,Math.min(window.innerWidth-tipRect.width-18,rect.left+rect.width/2-tipRect.width/2))
+    :Math.max(18,Math.min(window.innerWidth-tipRect.width-18,rect.right+10));
+  const top=IS_ANDROID_APP
+    ?Math.max(18,Math.min(window.innerHeight-tipRect.height-18,rect.bottom+10))
+    :Math.max(18,Math.min(window.innerHeight-tipRect.height-18,rect.top+rect.height/2-tipRect.height/2));
   tip.style.left=(left-pickerRect.left)+'px';
   tip.style.top=(top-pickerRect.top)+'px';
   attachPlaylistTooltipPointerWatch();
@@ -1147,7 +1161,12 @@ function startPlaylistRailDrag(e,id){
   if(e.button!=null&&e.button!==0)return;
   e.preventDefault();
   const dots=playlistRailEl&&playlistRailEl.querySelector('.playlist-rail-dots');
-  playlistRailDrag={id,startX:e.clientX,lastX:e.clientX,dragging:false,scrolling:false,targetIndex:playlistIndexById(id),pointerId:e.pointerId,dots,startScrollLeft:dots?dots.scrollLeft:0,holdTimer:0};
+  playlistRailDrag={
+    id,
+    startX:e.clientX,lastX:e.clientX,startY:e.clientY,lastY:e.clientY,
+    dragging:false,scrolling:false,targetIndex:playlistIndexById(id),pointerId:e.pointerId,dots,
+    startScrollLeft:dots?dots.scrollLeft:0,startScrollTop:dots?dots.scrollTop:0,holdTimer:0
+  };
   playlistRailDrag.holdTimer=setTimeout(()=>{
     const drag=playlistRailDrag;
     if(!drag||drag.scrolling)return;
@@ -1163,9 +1182,10 @@ function startPlaylistRailDrag(e,id){
 function movePlaylistRailDrag(e){
   if(!playlistRailDrag)return;
   const drag=playlistRailDrag;
-  drag.lastX=e.clientX;
-  const dx=e.clientX-drag.startX;
-  if(!drag.dragging&&Math.abs(dx)>6){
+  drag.lastX=e.clientX;drag.lastY=e.clientY;
+  const dx=e.clientX-drag.startX,dy=e.clientY-drag.startY;
+  const delta=IS_ANDROID_APP?dx:dy;
+  if(!drag.dragging&&Math.abs(delta)>6){
     clearTimeout(drag.holdTimer);
     drag.holdTimer=0;
     drag.scrolling=true;
@@ -1173,7 +1193,10 @@ function movePlaylistRailDrag(e){
     hidePlaylistTooltip();
   }
   if(drag.scrolling&&!drag.dragging){
-    if(drag.dots)drag.dots.scrollLeft=drag.startScrollLeft-dx;
+    if(drag.dots){
+      if(IS_ANDROID_APP)drag.dots.scrollLeft=drag.startScrollLeft-dx;
+      else drag.dots.scrollTop=drag.startScrollTop-dy;
+    }
     return;
   }
   if(!drag.dragging)return;
@@ -1181,7 +1204,9 @@ function movePlaylistRailDrag(e){
   let targetIndex=items.length-1;
   for(let i=0;i<items.length;i++){
     const rect=items[i].getBoundingClientRect();
-    if(e.clientX<rect.left+rect.width/2){targetIndex=i;break;}
+    const pointer=IS_ANDROID_APP?e.clientX:e.clientY;
+    const midpoint=IS_ANDROID_APP?rect.left+rect.width/2:rect.top+rect.height/2;
+    if(pointer<midpoint){targetIndex=i;break;}
   }
   drag.targetIndex=targetIndex;
   const marker=playlistRailEl.querySelector('.playlist-rail-marker');
@@ -1189,7 +1214,10 @@ function movePlaylistRailDrag(e){
   const ref=items[targetIndex];
   if(marker&&ref){
     marker.style.opacity='1';
-    marker.style.transform='translateX('+(ref.getBoundingClientRect().left-railRect.left-4)+'px)';
+    const rect=ref.getBoundingClientRect();
+    marker.style.transform=IS_ANDROID_APP
+      ?'translateX('+(rect.left-railRect.left-4)+'px)'
+      :'translateY('+(rect.top-railRect.top-4)+'px)';
   }
 }
 function endPlaylistRailDrag(){
@@ -1700,25 +1728,25 @@ function layoutPickerTrack(trackEl,center,offset,animate){
   const dragCenter=center-offset/baseGap;
   covers.forEach((el,i)=>{
     const rel=i-dragCenter;
-    let posY=0;
+    let position=0;
     const dir=rel>=0?1:-1;
     const absRel=Math.abs(rel);
     for(let k=0;k<Math.floor(absRel);k++){
       const localScale=Math.max(.4,1-k*0.35);
-      posY+=dir*baseGap*localScale;
+      position+=dir*baseGap*localScale;
     }
     const frac=absRel-Math.floor(absRel);
     if(frac>0){
       const d=Math.floor(absRel);
       const localScale=Math.max(.4,1-d*0.35);
-      posY+=dir*baseGap*localScale*frac;
+      position+=dir*baseGap*localScale*frac;
     }
-    const elCenter=cy+posY;
-    const dist=Math.abs(elCenter-cy);
+    const elCenter=(IS_ANDROID_APP?cy:cx)+position;
+    const dist=Math.abs(position);
     const scale=Math.max(.4,1-dist/800);
     const op=Math.max(.2,1-dist/600);
-    el.style.left=cx+'px';
-    el.style.top=elCenter+'px';
+    el.style.left=(IS_ANDROID_APP?cx:elCenter)+'px';
+    el.style.top=(IS_ANDROID_APP?elCenter:cy)+'px';
     el.style.transform='translate(-50%,-50%) scale('+scale+')';
     el.style.opacity=op;
     const titleOp=Math.max(0,1-dist/fadeRange);
@@ -1845,15 +1873,18 @@ function translateAxisOf(el,axis){
   if(match3d){const parts=match3d[1].split(',').map(Number);return parts[axis==='x'?12:13]||0;}
   return 0;
 }
-function translateXOf(el){return translateAxisOf(el,'x')}
-function translateYOf(el){return translateAxisOf(el,'y')}
-function interruptPlaylistSwitchForDrag(pointerX){
+const PLAYLIST_SWITCH_AXIS=IS_ANDROID_APP?'x':'y';
+const SONG_PICKER_AXIS=IS_ANDROID_APP?'y':'x';
+function axisTransform(axis,value){return axis==='x'?'translateX('+value+'px)':'translateY('+value+'px)'}
+function axisViewportSize(axis){return axis==='x'?Math.max(innerWidth,480):Math.max(innerHeight,480)}
+function axisDelta(axis,dx,dy){return axis==='x'?dx:dy}
+function interruptPlaylistSwitchForDrag(){
   if(!playlistSwitching)return 0;
   clearTimeout(playlistSwitchTimer);
   playlistSwitchTimer=0;
-  const currentX=translateXOf(pickerTrack);
-  const direction=playlistSwitchDirection||((currentX<0)?1:-1);
-  const w=Math.max(innerWidth,480);
+  const current=translateAxisOf(pickerTrack,PLAYLIST_SWITCH_AXIS);
+  const direction=playlistSwitchDirection||((current<0)?1:-1);
+  const span=axisViewportSize(PLAYLIST_SWITCH_AXIS);
   let layer=playlistPreviewLayer||songPicker.querySelector('.playlist-preview-layer');
   if(!layer&&playlistSwitchTargetId){
     const created=createPickerLayer(playlistSwitchTargetId);
@@ -1867,15 +1898,15 @@ function interruptPlaylistSwitchForDrag(pointerX){
   playlistSwitchTargetId='';
   playlistSwitchDirection=0;
   pickerTrack.style.transition='none';
-  pickerTrack.style.transform='translateX('+currentX+'px)';
-  pickerTrack.style.opacity=String(Math.max(.16,1-Math.abs(currentX)/w*.84));
+  pickerTrack.style.transform=axisTransform(PLAYLIST_SWITCH_AXIS,current);
+  pickerTrack.style.opacity=String(Math.max(.16,1-Math.abs(current)/span*.84));
   if(layer){
-    const layerX=translateXOf(layer)||((direction>0?w:-w)+currentX);
+    const layerPosition=translateAxisOf(layer,PLAYLIST_SWITCH_AXIS)||((direction>0?span:-span)+current);
     layer.style.transition='none';
-    layer.style.transform='translateX('+layerX+'px)';
-    layer.style.opacity=String(Math.min(1,Math.max(.3,Math.abs(currentX)/160)));
+    layer.style.transform=axisTransform(PLAYLIST_SWITCH_AXIS,layerPosition);
+    layer.style.opacity=String(Math.min(1,Math.max(.3,Math.abs(current)/160)));
   }
-  return currentX;
+  return current;
 }
 function cancelPlaylistSwitchAnimation(){
   if(!playlistSwitching&&!playlistSwitchTimer)return;
@@ -1965,17 +1996,17 @@ function animatePlaylistSwitchTo(id,direction){
   clearPlaylistPreview();
   const created=createPickerLayer(id);
   const layer=created.layer;
-  const w=Math.max(innerWidth,480);
-  layer.style.transform='translateX('+(direction*w)+'px)';
+  const span=axisViewportSize(PLAYLIST_SWITCH_AXIS);
+  layer.style.transform=axisTransform(PLAYLIST_SWITCH_AXIS,direction*span);
   layer.style.opacity='.82';
   songPicker.appendChild(layer);
   pickerTrack.style.transition='transform .52s cubic-bezier(.16,.86,.18,1),opacity .32s ease';
   layer.style.transition='transform .52s cubic-bezier(.16,.86,.18,1),opacity .32s ease';
   animatePlaylistRailTo(Math.max(0,playlistIndexById(id)),520);
   requestAnimationFrame(()=>requestAnimationFrame(()=>{
-    pickerTrack.style.transform='translateX('+(-direction*w)+'px)';
+    pickerTrack.style.transform=axisTransform(PLAYLIST_SWITCH_AXIS,-direction*span);
     pickerTrack.style.opacity='.18';
-    layer.style.transform='translateX(0)';
+    layer.style.transform=axisTransform(PLAYLIST_SWITCH_AXIS,0);
     layer.style.opacity='1';
   }));
   schedulePlaylistSwitchFinish(layer,id,created.center,820);
@@ -1992,71 +2023,90 @@ function switchPickerPlaylist(direction){
 let dragStartX=0,dragStartY=0,lastDragX=0,lastDragY=0,dragOffset=0,dragMoved=false,dragging=false,dragAxis='';
 let lastPlaylistWheel=0;
 let playlistWheelUnlockTimer=0;
-function onDragStart(x,y){const carryX=playlistSwitching?interruptPlaylistSwitchForDrag(x):0;hidePlaylistTooltip();dragging=true;dragMoved=false;dragStartX=x-carryX;dragStartY=y;lastDragX=x;lastDragY=y;dragOffset=0;dragAxis=carryX?'x':'';dragStartPlaylistIndex=playlistRailProgress;pickerTrack.classList.add('dragging')}
+function onDragStart(x,y){
+  const carry=playlistSwitching?interruptPlaylistSwitchForDrag():0;
+  hidePlaylistTooltip();
+  dragging=true;
+  dragMoved=false;
+  dragStartX=x-(PLAYLIST_SWITCH_AXIS==='x'?carry:0);
+  dragStartY=y-(PLAYLIST_SWITCH_AXIS==='y'?carry:0);
+  lastDragX=x;
+  lastDragY=y;
+  dragOffset=0;
+  dragAxis=carry?PLAYLIST_SWITCH_AXIS:'';
+  dragStartPlaylistIndex=playlistRailProgress;
+  pickerTrack.classList.add('dragging');
+}
 function onDragMove(x,y){
   if(!dragging)return;
   lastDragX=x;lastDragY=y;
   const dx=x-dragStartX,dy=y-dragStartY;
   if(!dragAxis&&Math.max(Math.abs(dx),Math.abs(dy))>10)dragAxis=Math.abs(dx)>=Math.abs(dy)?'x':'y';
-  if(dragAxis==='x'){
-    if(Math.abs(dx)>12)dragMoved=true;
-    const direction=dx<0?1:-1;
+  if(dragAxis===PLAYLIST_SWITCH_AXIS){
+    const delta=axisDelta(PLAYLIST_SWITCH_AXIS,dx,dy);
+    if(Math.abs(delta)>12)dragMoved=true;
+    const direction=delta<0?1:-1;
     const hasTarget=preparePlaylistPreview(direction);
-    const w=Math.max(innerWidth,480);
-    const limited=hasTarget?Math.max(-w,Math.min(w,dx)):Math.max(-48,Math.min(48,dx*.24));
+    const span=axisViewportSize(PLAYLIST_SWITCH_AXIS);
+    const limited=hasTarget?Math.max(-span,Math.min(span,delta)):Math.max(-48,Math.min(48,delta*.24));
     pickerTrack.style.transition='none';
-    pickerTrack.style.transform='translateX('+limited+'px)';
-    const progress=Math.min(1,Math.abs(limited)/w);
-    setPlaylistRailProgress(dragStartPlaylistIndex+(hasTarget?direction*progress:(limited/w)*.35));
+    pickerTrack.style.transform=axisTransform(PLAYLIST_SWITCH_AXIS,limited);
+    const progress=Math.min(1,Math.abs(limited)/span);
+    setPlaylistRailProgress(dragStartPlaylistIndex+(hasTarget?direction*progress:(limited/span)*.35));
     if(playlistPreviewLayer){
       playlistPreviewLayer.style.transition='none';
-      playlistPreviewLayer.style.transform='translateX('+((direction>0?w:-w)+limited)+'px)';
+      playlistPreviewLayer.style.transform=axisTransform(PLAYLIST_SWITCH_AXIS,(direction>0?span:-span)+limited);
       playlistPreviewLayer.style.opacity=String(Math.min(1,Math.max(.3,Math.abs(limited)/160)));
     }
     return;
   }
-  dragOffset=dy;
-  if(Math.abs(dragOffset)>5)dragMoved=true;
-  updatePickerPosition(false);
+  if(dragAxis===SONG_PICKER_AXIS){
+    dragOffset=axisDelta(SONG_PICKER_AXIS,dx,dy);
+    if(Math.abs(dragOffset)>5)dragMoved=true;
+    updatePickerPosition(false);
+  }
 }
 function onDragEnd(e){
   if(!dragging)return;dragging=false;
   const point=e&&e.changedTouches&&e.changedTouches[0];
   const dx=(point?point.clientX:lastDragX)-dragStartX;
   const dy=(point?point.clientY:lastDragY)-dragStartY;
-  if(dragAxis==='x'){
-    const direction=dx<0?1:-1;
-    const w=Math.max(innerWidth,480);
-    const shouldSwitch=playlistPreviewLayer&&playlistDragTargetId&&Math.abs(dx)>72;
+  if(dragAxis===PLAYLIST_SWITCH_AXIS){
+    const delta=axisDelta(PLAYLIST_SWITCH_AXIS,dx,dy);
+    const direction=delta<0?1:-1;
+    const span=axisViewportSize(PLAYLIST_SWITCH_AXIS);
+    const shouldSwitch=playlistPreviewLayer&&playlistDragTargetId&&Math.abs(delta)>72;
     pickerTrack.classList.remove('dragging');
     pickerTrack.style.transition='transform .42s cubic-bezier(.18,.9,.2,1),opacity .28s ease';
     if(playlistPreviewLayer)playlistPreviewLayer.style.transition='transform .42s cubic-bezier(.18,.9,.2,1),opacity .28s ease';
     if(shouldSwitch){
       playlistSwitching=true;
       const targetId=playlistDragTargetId;
-      pickerTrack.style.transform='translateX('+(-direction*w)+'px)';
+      pickerTrack.style.transform=axisTransform(PLAYLIST_SWITCH_AXIS,-direction*span);
       pickerTrack.style.opacity='.16';
-      playlistPreviewLayer.style.transform='translateX(0)';
+      playlistPreviewLayer.style.transform=axisTransform(PLAYLIST_SWITCH_AXIS,0);
       playlistPreviewLayer.style.opacity='1';
       animatePlaylistRailTo(Math.max(0,playlistIndexById(targetId)),420);
       schedulePlaylistSwitchFinish(playlistPreviewLayer,targetId,centerForPlaylist(targetId),680);
     }else{
-      pickerTrack.style.transform='translateX(0)';
+      pickerTrack.style.transform=axisTransform(PLAYLIST_SWITCH_AXIS,0);
       pickerTrack.style.opacity='1';
       if(playlistPreviewLayer){
-        playlistPreviewLayer.style.transform='translateX('+((direction>0?w:-w))+'px)';
+        playlistPreviewLayer.style.transform=axisTransform(PLAYLIST_SWITCH_AXIS,direction>0?span:-span);
         playlistPreviewLayer.style.opacity='0';
       }
       animatePlaylistRailTo(dragStartPlaylistIndex,260);
       setTimeout(()=>{clearPlaylistPreview();pickerTrack.style.transform='';pickerTrack.style.transition='';pickerTrack.style.opacity=''},440);
     }
     dragOffset=0;dragAxis='';
-  }else{
+  }else if(dragAxis===SONG_PICKER_AXIS){
     const songs=pickerTracks();
     const shift=Math.round(-dragOffset/(COVER_W+60));
     pickerCenter=Math.max(0,Math.min(Math.max(0,songs.length-1),pickerCenter+shift));
     pickerTrack.classList.remove('dragging');
     requestAnimationFrame(()=>{requestAnimationFrame(()=>{dragOffset=0;updatePickerPosition(true)})});
+  }else{
+    pickerTrack.classList.remove('dragging');
   }
   if(dragMoved){
     const blocker=e2=>{
@@ -2078,10 +2128,11 @@ let lastSongWheel=0;
 songPicker.addEventListener('wheel',e=>{
   if(!songPicker.classList.contains('show'))return;
   if(playlistSwitching)return;
-  const absX=Math.abs(e.deltaX),absY=Math.abs(e.deltaY);
-  if(absX>absY&&absX>=18){
+  const playlistDelta=PLAYLIST_SWITCH_AXIS==='x'?e.deltaX:e.deltaY;
+  const songDelta=SONG_PICKER_AXIS==='x'?e.deltaX:e.deltaY;
+  if(Math.abs(playlistDelta)>Math.abs(songDelta)&&Math.abs(playlistDelta)>=18){
     e.preventDefault();
-    const direction=e.deltaX>0?1:-1;
+    const direction=playlistDelta>0?1:-1;
     const id=playlistNeighborId(direction);
     if(!id){
       animatePlaylistRailTo(Math.max(0,playlistIndexById(pickerPlaylistId)),120);
@@ -2095,13 +2146,13 @@ songPicker.addEventListener('wheel',e=>{
     animatePlaylistSwitchTo(id,direction);
     return;
   }
-  if(absY>=18){
+  if(Math.abs(songDelta)>=18){
     e.preventDefault();
     const t=performance.now();
     if(t-lastSongWheel<160)return;
     lastSongWheel=t;
     const songs=pickerTracks();
-    const direction=e.deltaY>0?1:-1;
+    const direction=songDelta>0?1:-1;
     pickerCenter=Math.max(0,Math.min(Math.max(0,songs.length-1),pickerCenter+direction));
     dragOffset=0;
     updatePickerPosition(true);

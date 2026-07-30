@@ -344,3 +344,14 @@ body.desktop-shell .picker-search-btn,body.desktop-shell .picker-auth-btn,body.d
 .bili-progress span{position:relative;z-index:1;max-width:calc(100% - 24px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .bili-import-view .bili-cookie-actions{flex-wrap:wrap}
 .bili-import-view .bili-cookie-actions button:disabled,.bili-import-view .bili-add:disabled{opacity:.58;cursor:default;transform:none}
+
+/* Desktop picker keeps songs horizontal and playlists vertical; Android uses the inverse layout. */
+html:not(.android-app) .playlist-rail{left:28px;top:50%;width:44px;max-width:none;height:auto;max-height:min(70vh,560px);padding:10px 0;flex-direction:column;transform:translate(-10px,-50%) scale(.96)}
+html:not(.android-app) .song-picker.show .playlist-rail{transform:translate(0,-50%) scale(1)}
+html:not(.android-app) .playlist-rail-dots{width:30px;max-width:none;max-height:min(calc(70vh - 58px),470px);padding:4px 0;flex-direction:column;overflow-x:visible;overflow-y:auto}
+html:not(.android-app) .playlist-rail-item{width:30px;height:20px;flex:0 0 20px}
+html:not(.android-app) .playlist-rail-item.active .playlist-dot{width:10px;height:22px}
+html:not(.android-app) .playlist-rail-marker{left:50%;top:16px;width:22px;height:2px;transform:translate(-50%,0)}
+html:not(.android-app) .picker-cover{will-change:transform,left,top;transition:left .35s cubic-bezier(.22,.61,.36,1),top .35s cubic-bezier(.22,.61,.36,1),transform .35s cubic-bezier(.22,.61,.36,1),opacity .35s cubic-bezier(.22,.61,.36,1)}
+html:not(.android-app) .picker-track.playlist-edge-bounce{animation:playlistEdgeBounceDesktop .26s cubic-bezier(.18,.9,.2,1)}
+@keyframes playlistEdgeBounceDesktop{0%{transform:translateY(0)}42%{transform:translateY(18px)}100%{transform:translateY(0)}}
